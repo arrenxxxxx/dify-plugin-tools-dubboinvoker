@@ -1,0 +1,51 @@
+# 打包时忽略的文件和目录
+
+# git管理文件
+.git/
+.gitattributes
+.gitignore
+
+# CI配置文件
+.github/
+
+# IDE配置文件
+.idea/
+.vscode/
+
+# 开发过程中的临时文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 单元测试
+tests/
+pytest.ini
+.pytest_cache/
+
+# 文档
+docs/
+
+# 虚拟环境
+.env
+.venv
+venv/
+ENV/
+
+# 自动生成的包
+node_modules/
+package-lock.json 

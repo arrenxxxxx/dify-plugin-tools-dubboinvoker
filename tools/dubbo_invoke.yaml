@@ -1,0 +1,70 @@
+identity:
+  name: dubbo_invoke
+  author: dify
+  label:
+    en_US: Invoke Dubbo Service
+    zh_Hans: 调用Dubbo服务
+description:
+  human:
+    en_US: Call Dubbo services through direct connection or service discovery via registry centers like ZooKeeper.
+    zh_Hans: 通过直连或使用ZooKeeper等注册中心调用Dubbo服务。
+  llm: Call a Dubbo service by providing either registry center information or direct connection details.
+extra:
+  python:
+    source: tools/dubbo_invoke.py
+parameters:
+  - name: registry_address
+    type: string
+    required: false
+    label:
+      en_US: Registry Address
+      zh_Hans: 注册中心地址
+    human_description:
+      en_US: The address of registry center (e.g. zookeeper://127.0.0.1:2181).
+      zh_Hans: 注册中心地址，如 zookeeper://127.0.0.1:2181。
+    llm_description: Registry center address in format like zookeeper://host:port.
+    form: llm
+  - name: service_address
+    type: string
+    required: false
+    label:
+      en_US: Service Address
+      zh_Hans: 服务地址
+    human_description:
+      en_US: The direct address of the Dubbo service (e.g. 127.0.0.1:20880).
+      zh_Hans: Dubbo服务的直连地址，如 127.0.0.1:20880。
+    llm_description: Direct service address in format like host:port.
+    form: llm
+  - name: interface
+    type: string
+    required: true
+    label:
+      en_US: Interface Name
+      zh_Hans: 接口名称
+    human_description:
+      en_US: The fully qualified name of the Dubbo interface (e.g. com.example.UserService).
+      zh_Hans: Dubbo接口的完整名称，如 com.example.UserService。
+    llm_description: The fully qualified name of the Dubbo interface.
+    form: llm
+  - name: method
+    type: string
+    required: true
+    label:
+      en_US: Method Name
+      zh_Hans: 方法名称
+    human_description:
+      en_US: The name of the method to call.
+      zh_Hans: 要调用的方法名。
+    llm_description: The name of the method to call.
+    form: llm
+  - name: params
+    type: string
+    required: false
+    label:
+      en_US: Parameters
+      zh_Hans: 参数
+    human_description:
+      en_US: JSON string of parameters for the method (e.g. {"id":123}).
+      zh_Hans: 方法参数的JSON字符串，如 {"id":123}。
+    llm_description: JSON string of parameters for the method (can be empty if no parameters are needed).
+    form: llm 

@@ -1,0 +1,19 @@
+identity:
+  author: dify
+  name: dubbo_invoker
+  label:
+    en_US: Dubbo Invoker
+    zh_Hans: Dubbo调用器
+  description:
+    en_US: Call Dubbo services through direct connection or service discovery via registry centers like ZooKeeper or Nacos.
+    zh_Hans: 通过直连或使用ZooKeeper、Nacos等注册中心调用Dubbo服务。
+  icon: icon.svg
+  tags:
+    - utilities
+    - business
+    - other
+tools:
+  - tools/dubbo_invoke.yaml
+extra:
+  python:
+    source: provider/dubbo_invoker.py 

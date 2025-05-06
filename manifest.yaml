@@ -1,0 +1,33 @@
+version: 0.0.1
+type: plugin
+author: dify
+name: dubboinvoker
+label:
+  en_US: Dubbo Invoker
+  zh_Hans: Dubbo调用器
+description:
+  en_US: Call Dubbo services through direct connection or service discovery via registry centers like ZooKeeper or Nacos.
+  zh_Hans: 通过直连或使用ZooKeeper、Nacos等注册中心调用Dubbo服务。
+icon: icon.svg
+resource:
+  memory: 268435456
+  permission: {}
+plugins:
+  tools:
+    - provider/dubbo_invoker.yaml
+tags:
+  - utilities
+  - business
+  - other
+meta:
+  version: 0.0.1
+  arch:
+    - amd64
+    - arm64
+  runner:
+    language: python
+    version: "3.12"
+    entrypoint: main
+created_at: 2025-07-02T12:00:00+08:00
+privacy: PRIVACY.md
+verified: false 
