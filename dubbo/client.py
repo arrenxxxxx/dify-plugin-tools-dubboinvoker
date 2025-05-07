@@ -20,7 +20,7 @@
 
 import logging
 import time
-
+from typing import Any, List, Optional
 
 from dubbo.common.exceptions import RegisterException
 from dubbo.connection.connections import connection_pool
@@ -50,7 +50,7 @@ class DubboClient(object):
 
         self.__host = host
 
-    def call(self, method, args=(), timeout=None):
+    def call(self, method, args=(), param_types=None, timeout=None):
         """
         执行远程调用
         :param method: 远程调用的方法名
@@ -66,6 +66,7 @@ class DubboClient(object):
                         * double
                         * java.lang.String
                         * java.lang.Object
+        :param param_types: 参数类型列表，如['int', 'java.lang.String']
         :param timeout: 请求超时时间（秒），不设置则不会超时
         :return:
         """
@@ -81,6 +82,10 @@ class DubboClient(object):
             'method': method,
             'arguments': args
         }
+        
+        # 如果提供了参数类型信息，添加到请求参数中
+        if param_types:
+            request_param['parameter_types'] = param_types
 
         logger.debug('Start request, host={}, params={}'.format(host, request_param))
         start_time = time.time()

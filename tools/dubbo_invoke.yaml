@@ -24,16 +24,16 @@ parameters:
       zh_Hans: 注册中心地址，如 zookeeper://127.0.0.1:2181。
     llm_description: Registry center address in format like zookeeper://host:port.
     form: llm
-  - name: service_address
+  - name: service_uri
     type: string
     required: false
     label:
-      en_US: Service Address
-      zh_Hans: 服务地址
+      en_US: Service URI
+      zh_Hans: 服务URI
     human_description:
-      en_US: The direct address of the Dubbo service (e.g. 127.0.0.1:20880).
-      zh_Hans: Dubbo服务的直连地址，如 127.0.0.1:20880。
-    llm_description: Direct service address in format like host:port.
+      en_US: The direct URI of the Dubbo service including protocol (e.g. dubbo://127.0.0.1:20880).
+      zh_Hans: Dubbo服务的直连URI，包含协议，如 dubbo://127.0.0.1:20880。
+    llm_description: Direct service URI in format like protocol://host:port.
     form: llm
   - name: interface
     type: string
@@ -57,14 +57,36 @@ parameters:
       zh_Hans: 要调用的方法名。
     llm_description: The name of the method to call.
     form: llm
+  - name: parameter_types
+    type: string
+    required: false
+    label:
+      en_US: Parameter Types
+      zh_Hans: 参数类型
+    human_description:
+      en_US: Java types of parameters separated by commas (e.g. "int,java.lang.String").
+      zh_Hans: 参数的Java类型，用逗号分隔（如"int,java.lang.String"）。
+    llm_description: Comma-separated Java type names for method parameters (e.g. "int,java.lang.String" or "com.example.UserDTO").
+    form: llm
+  - name: parameter_values
+    type: string
+    required: false
+    label:
+      en_US: Parameter Values
+      zh_Hans: 参数值
+    human_description:
+      en_US: JSON representation of parameter values (array for multiple parameters, object for single complex parameter).
+      zh_Hans: 参数值的JSON表示（数组表示多个参数，对象表示单个复杂参数）。
+    llm_description: JSON representation of parameter values matching the parameter_types.
+    form: llm
   - name: params
     type: string
     required: false
     label:
-      en_US: Parameters
-      zh_Hans: 参数
+      en_US: Parameters (Legacy)
+      zh_Hans: 参数（传统方式）
     human_description:
-      en_US: JSON string of parameters for the method (e.g. {"id":123}).
-      zh_Hans: 方法参数的JSON字符串，如 {"id":123}。
-    llm_description: JSON string of parameters for the method (can be empty if no parameters are needed).
+      en_US: JSON string of parameters for the method (e.g. {"id":123}). Use parameter_types and parameter_values for more complex scenarios.
+      zh_Hans: 方法参数的JSON字符串，如 {"id":123}。复杂场景请使用parameter_types和parameter_values参数。
+    llm_description: Legacy parameter format. Prefer using parameter_types and parameter_values for better type control.
     form: llm 

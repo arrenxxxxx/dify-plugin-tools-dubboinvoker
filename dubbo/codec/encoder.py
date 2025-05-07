@@ -31,91 +31,161 @@
 """
 import struct
 import re
+from typing import Any, Dict, List, Optional, Union
+
 from dubbo.common.constants import MIN_INT_32, MAX_INT_32, DEFAULT_REQUEST_META
 from dubbo.common.exceptions import HessianTypeError
 from dubbo.common.util import double_to_long_bits, get_invoke_id
 
+# 支持的基础类型映射
+BASIC_TYPE_MAPPING = {
+    'boolean': 'Z',
+    'bool': 'Z',
+    'int': 'I',
+    'integer': 'I',
+    'long': 'J',
+    'float': 'F',
+    'double': 'D',
+    'byte': 'B',
+    'char': 'C',
+    'short': 'S',
+    'void': 'V'
+}
 
 class Object(object):
     """
-    创建一个Java对象
+    对应Java的实体对象
     """
 
     def __init__(self, path, values=None):
         """
-        :param path:   Java对象的路径，例如：java.lang.Object
-        :param values: 可以在创建对象时就进行赋值
+        :param path: Java对象的路径，例如：java.lang.Object
+        :param values: 构造函数的参数
         """
-        if not isinstance(path, str):
-            raise ValueError('Object path {} should be string type.'.format(path))
-        self.__path = path
-        if not isinstance(values, dict):
-            values = {}
-        self.__values = values
-
-    def __getitem__(self, key):
-        return self.__values[key]
-
-    def __setitem__(self, key, value):
-        if not isinstance(key, str):
-            raise ValueError('Object key {} should be string type.'.format(key))
-        self.__values[key] = value
-
-    def __delitem__(self, key):
-        del self.__values[key]
-
-    def __repr__(self):
-        return '<java object {} at {} with {}>'.format(self.__path, hex(id(self)), self.__values)
-
-    def __contains__(self, key):
-        return key in self.__values
-
-    def keys(self):
-        return list(self.__values.keys())
+        self.__path = path  # 对象的路径全名
+        self.__values = values or {}  # 对象的属性字典
 
     def get_path(self):
         return self.__path
 
+    def __getitem__(self, key):
+        return self.__values.get(key)
+
+    def __setitem__(self, key, value):
+        self.__values[key] = value
+
+    def __iter__(self):
+        return iter(self.__values)
+
+    def __str__(self):
+        return f"{self.__path}: {str(self.__values)}"
+
+    __repr__ = __str__
+
 
 class Request(object):
     """
-    A class for dumping dubbo request body.
-    All types can be dumped:
-    * boolean
-    * int
-    * long
-    * double
-    * string
-    * object
+    请求对象
     """
 
-    def __init__(self, request):
-        self.__body = request
-        self.__classes = []
-        self.types = []  # 泛型
-        self.invoke_id = get_invoke_id()
+    def __init__(self, request_param):
+        # 初始化请求参数
+        self.request_param = request_param
+        self.dubbo_version = request_param.get('dubbo_version', '2.4.10')
+        self.service_name = request_param.get('path')
+        self.service_version = request_param.get('version', '')
+        self.method = request_param.get('method')
+        self.arguments = request_param.get('arguments', [])
+        self.parameter_types = request_param.get('parameter_types', None)
+        self.attachments = request_param.get('attachments', {})
+        self.invoke_id = request_param.get('invoke_id', None) or get_invoke_id()
+        self.types = []  # 泛型类型列表，用于编码列表
 
     def encode(self):
         """
-        把请求序列化为字节数组
+        把请求参数转化为字节数组
         :return:
         """
         request_body = self._encode_request_body()
-        invoke_id = list(bytearray(struct.pack('!q', self.invoke_id)))
-        request_head = DEFAULT_REQUEST_META + invoke_id + get_request_body_length(request_body)
+        request_head = self._build_request_head(len(request_body))
         return bytearray(request_head + request_body)
 
-    def _get_parameter_types(self, arguments):
+    def _build_request_head(self, body_len):
         """
-        针对所有的参数计算得到参数类型字符串
-        :param arguments:
+        构建请求头
+        :param body_len:
         :return:
         """
-        parameter_types = ''
-        # 判断并得出参数的类型
-        for argument in arguments:
-            parameter_types += self._get_class_name(argument)
-        return parameter_types
+        # 使用默认的请求头
+        head = list(DEFAULT_REQUEST_META)
+        # 写入invoke_id
+        head[4:12] = list(struct.pack('!q', self.invoke_id))
+        # 写入body长度
+        head[12:] = list(struct.pack('!i', body_len))
+        return head
+
+    def _encode_request_body(self):
+        """
+        构建请求体
+        :return:
+        """
+        result = []
+        # 写入dubbo版本号
+        result.extend(self._encode_single_value(self.dubbo_version))
+        # 写入service_path
+        result.extend(self._encode_single_value(self.service_name))
+        # 写入service_version
+        result.extend(self._encode_single_value(self.service_version))
+        # 写入方法名
+        result.extend(self._encode_single_value(self.method))
+
+        # 使用parameter_types优先处理参数类型
+        if self.parameter_types:
+            result.extend(self._encode_method_parameter_types())
+        else:
+            # 写入方法的所有参数类型，如果有则以参数类型开头
+            if self.arguments:
+                parameter_types = ','.join([self._get_class_name(argument) for argument in self.arguments])
+                result.extend(self._encode_single_value(parameter_types))
+            else:
+                result.extend(self._encode_single_value(''))
+
+        # 写入方法的所有参数值
+        for argument in self.arguments:
+            result.extend(self._encode_single_value(argument))
+
+        # 写入隐藏传参
+        result.extend(self._encode_attachments())
+
+        return result
+
+    def _encode_method_parameter_types(self):
+        """
+        编码方法参数类型列表
+        :return:
+        """
+        # 转换参数类型到Java描述符格式
+        java_desc_list = []
+        for param_type in self.parameter_types:
+            if param_type.lower() in BASIC_TYPE_MAPPING:
+                # 处理基础类型
+                java_desc_list.append(BASIC_TYPE_MAPPING[param_type.lower()])
+            elif param_type.endswith('[]'):
+                # 处理数组类型
+                base_type = param_type[:-2]
+                if base_type.lower() in BASIC_TYPE_MAPPING:
+                    # 基础类型数组
+                    java_desc_list.append('[' + BASIC_TYPE_MAPPING[base_type.lower()])
+                else:
+                    # 对象类型数组
+                    java_desc_list.append('[L' + base_type.replace('.', '/') + ';')
+            else:
+                # 处理对象类型
+                java_desc_list.append('L' + param_type.replace('.', '/') + ';')
+        
+        # 将Java描述符格式的类型合并为一个字符串
+        parameter_types_str = ''.join(java_desc_list)
+        return self._encode_single_value(parameter_types_str)
 
     def _get_class_name(self, _class):
         """
@@ -146,213 +216,25 @@ class Request(object):
         else:
             raise HessianTypeError('Unknown argument type: {0}'.format(_class))
 
-    def _encode_request_body(self):
+    def _encode_attachments(self):
         """
-        对所有的已知的参数根据dubbo协议进行编码
+        编码隐藏参数
         :return:
         """
-        dubbo_version = self.__body['dubbo_version']
-        path = self.__body['path']
-        version = self.__body['version']
-        method = self.__body['method']
-        arguments = self.__body['arguments']
-
-        body = []
-        body.extend(self._encode_single_value(dubbo_version))
-        body.extend(self._encode_single_value(path))
-        body.extend(self._encode_single_value(version))
-        body.extend(self._encode_single_value(method))
-        body.extend(self._encode_single_value(self._get_parameter_types(arguments)))
-        for argument in arguments:
-            body.extend(self._encode_single_value(argument))
-
-        attachments = {
-            'path': path,
-            'interface': path,
-            'version': version
-        }
-        # attachments参数以H开头，以Z结尾
-        body.append(ord('H'))
-        for key in list(attachments.keys()):
-            value = attachments[key]
-            body.extend(self._encode_single_value(key))
-            body.extend(self._encode_single_value(value))
-        body.append(ord('Z'))
-
-        # 因为在上面的逻辑中没有对byte大小进行检测，所以在这里进行统一的处理
-        for i in range(len(body)):
-            body[i] = body[i] & 0xff
-        return body
-
-    @staticmethod
-    def _encode_bool(value):
-        """
-        对bool类型进行编码
-        :param value:
-        :return:
-        """
+        attachments = self.attachments
         result = []
-        if value:
-            result.append(ord('T'))
-        else:
-            result.append(ord('F'))
-        return result
-
-    @staticmethod
-    def _encode_int(value):
-        """
-        对整数进行编码
-        :param value:
-        :return:
-        """
-        result = []
-        # 超出int类型范围的值则转化为long类型
-        # 这里问题在于对于落在int范围内的数字，我们无法判断其是long类型还是int类型，所以一律认为其是int类型
-        if value > MAX_INT_32 or value < MIN_INT_32:
-            result.append(ord('L'))
-            result.extend(list(bytearray(struct.pack('!q', value))))
+        if not attachments:
+            result.append(ord('H'))
+            result.append(ord('Z'))
             return result
 
-        if -0x10 <= value <= 0x2f:
-            result.append(value + 0x90)
-        elif -0x800 <= value <= 0x7ff:
-            result.append(0xc8 + (value >> 8))
-            result.append(value)
-        elif -0x40000 <= value <= 0x3ffff:
-            result.append(0xd4 + (value >> 16))
-            result.append(value >> 8)
-            result.append(value)
-        else:
-            result.append(ord('I'))
-            result.append(value >> 24)
-            result.append(value >> 16)
-            result.append(value >> 8)
-            result.append(value)
-        return result
-
-    @staticmethod
-    def _encode_float(value):
-        """
-        对浮点类型进行编码
-        :param value:
-        :return:
-        """
-        result = []
-        int_value = int(value)
-        if int_value == value:
-            if int_value == 0:
-                result.append(0x5b)
-                return result
-            elif int_value == 1:
-                result.append(0x5c)
-                return result
-            elif -0x80 <= int_value < 0x80:
-                result.append(0x5d)
-                result.append(int_value)
-                return result
-            elif -0x8000 <= int_value < 0x8000:
-                result.append(0x5e)
-                result.append(int_value >> 8)
-                result.append(int_value)
-                return result
-
-        mills = int(value * 1000)
-        if 0.001 * mills == value and MIN_INT_32 <= mills <= MAX_INT_32:
-            result.append(0x5f)
-            result.append(mills >> 24)
-            result.append(mills >> 16)
-            result.append(mills >> 8)
-            result.append(mills)
-            return result
-
-        bits = double_to_long_bits(value)
-        result.append(ord('D'))
-        result.append(bits >> 56)
-        result.append(bits >> 48)
-        result.append(bits >> 40)
-        result.append(bits >> 32)
-        result.append(bits >> 24)
-        result.append(bits >> 16)
-        result.append(bits >> 8)
-        result.append(bits)
-        return result
-
-    @staticmethod
-    def _encode_utf(value):
-        """
-        对字符串进行编码，编码格式utf-8
-        参见方法：com.alibaba.com.caucho.hessian.io.Hessian2Output#printString
-        :param value:
-        :return:
-        """
-        result = []
-        for v in value:
-            ch = ord(v)
-            if ch < 0x80:
-                result.append(ch & 0xff)
-            elif ch < 0x800:
-                result.append((0xc0 + ((ch >> 6) & 0x1f)) & 0xff)
-                result.append((0x80 + (ch & 0x3f)) & 0xff)
-            else:
-                result.append((0xe0 + ((ch >> 12) & 0xf)) & 0xff)
-                result.append((0x80 + ((ch >> 6) & 0x3f)) & 0xff)
-                result.append((0x80 + (ch & 0x3f)) & 0xff)
-        return result
-
-    def _encode_str(self, value):
-        """
-        对一个字符串进行编码
-        :param value:
-        :return:
-        """
-        result = []
-        # 在进行网络传输操作时一律使用unicode进行操作
-        if isinstance(value, str):
-            if not has_chinese(value):
-                value = value.encode("utf-8").decode('unicode_escape')
-        length = len(value)
-        if length <= 0x1f:
-            result.append(0x00 + length)
-        elif length <= 0x3ff:
-            result.append(0x30 + (length >> 8))
-            result.append(length)
-        else:
-            result.append(ord('S'))
-            result.append(length >> 8)
-            result.append(length)
-
-        result.extend(self._encode_utf(value))
-        return result
-
-    def _encode_object(self, value):
-        """
-        对一个对象进行编码
-        :param value:
-        :return:
-        """
-        result = []
-        path = value.get_path()
-        field_names = list(value.keys())
-
-        if path not in self.__classes:
-            result.append(ord('C'))
-            result.extend(self._encode_single_value(path))
-
-            result.extend(self._encode_single_value(len(field_names)))
-
-            for field_name in field_names:
-                result.extend(self._encode_single_value(field_name))
-            self.__classes.append(path)
-        class_id = self.__classes.index(path)
-        if class_id <= 0xf:
-            class_id += 0x60
-            class_id &= 0xff
-            result.append(class_id)
-        else:
-            result.append(ord('O'))
-            result.extend(self._encode_single_value(class_id))
-        for field_name in field_names:
-            result.extend(self._encode_single_value(value[field_name]))
+        # 以H开头
+        result.append(ord('H'))
+        for key in attachments:
+            result.extend(self._encode_single_value(key))
+            result.extend(self._encode_single_value(attachments[key]))
+        # 最后以Z结束
+        result.append(ord('Z'))
         return result
 
     def _encode_list(self, value):
@@ -429,6 +311,109 @@ class Request(object):
             return [ord('N')]
         else:
             raise HessianTypeError('Unknown argument type: {}'.format(value))
+
+    def _encode_bool(self, value):
+        return [ord('T')] if value else [ord('F')]
+
+    def _encode_int(self, value):
+        if MIN_INT_32 <= value <= MAX_INT_32:
+            # 超出了4个字节的范围，使用8个字节的long类型进行编码
+            if -0x10 <= value <= 0x2f:
+                return [0x90 + value]
+            elif -0x800 <= value <= 0x7ff:
+                result = [0xc8 + (value >> 8)]
+                result.append(value & 0xff)
+                return result
+            elif -0x40000 <= value <= 0x3ffff:
+                result = [0xd4 + (value >> 16)]
+                result.append((value >> 8) & 0xff)
+                result.append(value & 0xff)
+                return result
+            else:
+                return [ord('I')] + list(struct.pack('!i', value))
+        else:
+            # 数字如果大于int_32的范围则将之按照long类型进行编码
+            return self._encode_long(value)
+
+    def _encode_long(self, value):
+        if -0x08 <= value <= 0x0f:
+            return [0xe0 + value]
+        elif -0x800 <= value <= 0x7ff:
+            result = [0xf8 + (value >> 8)]
+            result.append(value & 0xff)
+            return result
+        elif -0x40000 <= value <= 0x3ffff:
+            result = [0x3c + (value >> 16)]
+            result.append((value >> 8) & 0xff)
+            result.append(value & 0xff)
+            return result
+        elif -0x80000000 <= value <= 0x7fffffff:
+            return [0x59] + list(struct.pack('!i', value))
+        else:
+            return [ord('L')] + list(struct.pack('!q', value))
+
+    def _encode_float(self, value):
+        if value == 0.0:
+            return [0x5b]
+        elif value == 1.0:
+            return [0x5c]
+        elif int(value) == value and -0x80 <= value <= 0x7f:
+            return [0x5d] + list(struct.pack('!b', int(value)))
+        elif int(value) == value and -0x8000 <= value <= 0x7fff:
+            return [0x5e] + list(struct.pack('!h', int(value)))
+        else:
+            bits = double_to_long_bits(value)
+            return [ord('D')] + list(struct.pack('!d', value))
+
+    def _encode_str(self, value):
+        value = value.encode('utf-8')
+        length = len(value)
+        if length <= 0x1f:
+            return [0x00 + length] + list(value)
+        else:
+            result = []
+            # 把字符串分成多段，每段最多65535个字符
+            for i in range(int(length / 0xffff) + 1):
+                current_length = min(0xffff, length - 0xffff * i)
+                if i == int(length / 0xffff):
+                    # 最后一个分块
+                    result = result + [0x53, (current_length >> 8) & 0xff, current_length & 0xff] + \
+                                        list(value[0xffff * i:0xffff * i + current_length])
+                else:
+                    # 当前不是最后一个分块
+                    result = result + [0x52, (current_length >> 8) & 0xff, current_length & 0xff] + \
+                                        list(value[0xffff * i:0xffff * i + current_length])
+            return result
+
+    def _encode_object(self, value):
+        """
+        TODO: 这里暂时无法实现，因为需要把Python的基本类型映射到Java对象上
+        参考: https://github.com/apache/dubbo-python/blob/master/dubbo/serialization/hessian2.py#L243
+        :param value:
+        :return:
+        """
+        # path = value.get_path()
+        # field_names = []
+        # field_values = []
+        # for field_name in value:
+        #     field_names.append(field_name)
+        #     field_values.append(value[field_name])
+        # result = []
+        # result.append(ord('M'))
+        # result.extend(self._encode_single_value(path))
+        # keys = list(field_names)
+        # for i in range(len(keys)):
+        #     key = keys[i]
+        #     value = field_values[i]
+        #     result.extend(self._encode_single_value(str(key)))
+        #     result.extend(self._encode_single_value(value))
+        # result.append(ord('Z'))
+        # return result
+        raise HessianTypeError('Not implemented: object serialization')
+
+def encode_request(request_param):
+    req = Request(request_param)
+    return req.encode()
 
 
 def has_chinese(msg: str):
