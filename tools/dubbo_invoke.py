@@ -23,7 +23,6 @@ class DubboInvokeTool(Tool):
         method = tool_parameters.get("method", "")
         
         # 获取参数相关字段
-        input_params = tool_parameters.get("params", None)
         parameter_types = tool_parameters.get("parameter_types", None)
         parameter_values = tool_parameters.get("parameter_values", None)
         
@@ -49,9 +48,7 @@ class DubboInvokeTool(Tool):
             start_time = time.time()
             
             # 处理参数
-            param_objects, param_types = self._process_parameters(
-                input_params, parameter_types, parameter_values
-            )
+            param_objects, param_types = self._process_typed_parameters(parameter_types, parameter_values)
             
             # 执行调用
             if service_uri:
@@ -85,30 +82,6 @@ class DubboInvokeTool(Tool):
             logging.error(error_message, exc_info=True)
             yield self.create_text_message(error_message)
     
-    def _process_parameters(
-        self, 
-        legacy_params: Optional[str], 
-        parameter_types: Optional[str], 
-        parameter_values: Optional[str]
-    ) -> tuple[Any, Optional[List[str]]]:
-        """
-        处理参数，支持新旧两种参数格式
-        
-        Args:
-            legacy_params: 传统格式参数字符串 
-            parameter_types: 参数类型字符串，逗号分隔
-            parameter_values: 参数值的JSON字符串
-            
-        Returns:
-            tuple: (处理后的参数对象, 参数类型列表)
-        """
-        # 检查是否使用新参数格式
-        if parameter_types is not None and parameter_values is not None:
-            return self._process_typed_parameters(parameter_types, parameter_values)
-        
-        # 使用传统参数格式
-        return self._process_legacy_parameters(legacy_params), None
-    
     def _process_typed_parameters(
         self, parameter_types: str, parameter_values: str
     ) -> tuple[Any, List[str]]:
@@ -122,8 +95,35 @@ class DubboInvokeTool(Tool):
         Returns:
             tuple: (处理后的参数对象, 参数类型列表)
         """
-        # 解析参数类型列表
-        types_list = [t.strip() for t in parameter_types.split(",") if t.strip()]
+        # 标准化参数值：将空字符串或只包含空白的字符串转换为None
+        if parameter_values is not None and parameter_values.strip() == "":
+            parameter_values = None
+        
+        # 标准化参数类型：将空字符串或只包含空白的字符串转换为None
+        if parameter_types is not None and parameter_types.strip() == "":
+            parameter_types = None
+        
+        # 处理无参数调用的情况
+        if not parameter_types and not parameter_values:
+            logging.info("检测到无参数调用")
+            return None, []
+        
+        # 如果只有parameter_types为空，但parameter_values有值，使用传统调用方式
+        if not parameter_types and parameter_values:
+            logging.info("检测到传统参数调用方式（无类型信息）")
+            try:
+                values = json.loads(parameter_values)
+                return values, None  # 返回None表示使用传统调用
+            except json.JSONDecodeError as e:
+                logging.error(f"传统参数值JSON解析失败: {e}")
+                raise ValueError(f"参数值必须是有效的JSON格式: {e}")
+        
+        # 如果只有parameter_values为空，但parameter_types有值，这也是错误的  
+        if parameter_types and not parameter_values:
+            raise ValueError("提供了参数类型但未提供参数值")
+        
+        # 解析参数类型列表 - 使用智能解析处理泛型类型
+        types_list = self._parse_parameter_types(parameter_types)
         
         # 解析参数值
         try:
@@ -146,6 +146,44 @@ class DubboInvokeTool(Tool):
                 raise ValueError(f"参数值数量({len(values)})与参数类型数量({len(types_list)})不匹配")
             
             return values, types_list
+    
+    def _parse_parameter_types(self, parameter_types: str) -> List[str]:
+        """
+        智能解析参数类型字符串，正确处理包含泛型的Java类型
+        
+        Args:
+            parameter_types: 参数类型字符串，如 "int,Map<String,Integer>,List<User>"
+            
+        Returns:
+            解析后的类型列表
+        """
+        if not parameter_types or not parameter_types.strip():
+            return []
+        
+        types_list = []
+        current_type = ""
+        bracket_count = 0
+        
+        for char in parameter_types:
+            if char == '<':
+                bracket_count += 1
+                current_type += char
+            elif char == '>':
+                bracket_count -= 1
+                current_type += char
+            elif char == ',' and bracket_count == 0:
+                # 只有在没有嵌套尖括号时，逗号才是参数分隔符
+                if current_type.strip():
+                    types_list.append(current_type.strip())
+                current_type = ""
+            else:
+                current_type += char
+        
+        # 添加最后一个类型
+        if current_type.strip():
+            types_list.append(current_type.strip())
+        
+        return types_list
     
     def _process_legacy_parameters(self, legacy_params: Optional[str]) -> Any:
         """

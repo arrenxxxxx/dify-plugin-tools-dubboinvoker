@@ -80,7 +80,8 @@ class DubboClient(object):
             'version': '',
             'path': self.__interface,
             'method': method,
-            'arguments': args
+            'arguments': args,
+            'context': None
         }
         
         # 如果提供了参数类型信息，添加到请求参数中
@@ -95,6 +96,3 @@ class DubboClient(object):
         logger.debug('Request invoked, host={}, params={}, result={}, cost={}ms, timeout={}s'.format(
             host, request_param, result, cost_time, timeout))
         return result
-
-if __name__ == '__main__':
-    pass

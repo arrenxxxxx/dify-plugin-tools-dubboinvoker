@@ -64,9 +64,9 @@ parameters:
       en_US: Parameter Types
       zh_Hans: 参数类型
     human_description:
-      en_US: Java types of parameters separated by commas (e.g. "int,java.lang.String").
-      zh_Hans: 参数的Java类型，用逗号分隔（如"int,java.lang.String"）。
-    llm_description: Comma-separated Java type names for method parameters (e.g. "int,java.lang.String" or "com.example.UserDTO").
+      en_US: Java types of parameters separated by commas. Supports generic types (e.g. "int,Map<String,Integer>,List<User>").
+      zh_Hans: 参数的Java类型，用逗号分隔。支持泛型类型（如"int,Map<String,Integer>,List<User>"）。
+    llm_description: Comma-separated Java type names for method parameters. Supports generic types like Map<String,Integer> or List<User>. The parser correctly handles nested brackets, so commas inside generic type declarations are not treated as parameter separators.
     form: llm
   - name: parameter_values
     type: string

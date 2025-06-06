@@ -204,8 +204,16 @@ class NacosRegistryStrategy(RegistryStrategy):
                     
                     if weighted_hosts:
                         return self.select_provider_by_weight(weighted_hosts)
+                    else:
+                        self.logger.error(f"Nacos: no valid provider found for service: {interface}")
+                        raise ValueError(f"Nacos: service {interface} has no valid providers")
+                else:
+                    self.logger.error(f"Nacos: service {interface} not found or has no instances")
+                    raise ValueError(f"Nacos: service {interface} not found in registry")
             except Exception as e:
                 self.logger.warning(f"Nacos: service query failed: {str(e)}")
+                # 重新抛出异常而不是忽略
+                raise e
         except Exception as e:
             self.logger.error(f"Nacos: get provider failed: {str(e)}", exc_info=True)
             raise e
