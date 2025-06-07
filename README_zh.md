@@ -2,7 +2,8 @@
 
 一个强大的Dify插件，用于调用Dubbo服务。支持直接连接Dubbo服务或通过注册中心（如ZooKeeper、Nacos）进行服务发现。完全支持复杂参数类型，包括嵌套对象、集合、Map以及多参数方法调用。
 
-许可证：Apache 2.0 [English](README.md) 中文简体
+[![English](https://img.shields.io/badge/Language-English-blue)](README.md)
+[![中文简体](https://img.shields.io/badge/Language-简体中文-red)](README_zh.md)
 
 🚀 Dubbo调用器 — 为AI应用提供强大的Dubbo服务调用能力！
 
@@ -215,14 +216,6 @@ grep dubbo pom.xml
 - 计算类服务：`60000ms` (60秒) - 默认值
 - 复杂业务服务：`120000ms` (2分钟)
 - 批量处理服务：`300000ms` (5分钟)
-
-**监控和调优：**
-```yaml
-# 在工作流中监控调用时间
-开始时间: {{start_time}}
-调用结果: {{dubbo_result}}
-耗时统计: {{elapsed_time}}
-```
 
 ### 字段验证规则
 

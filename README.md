@@ -2,7 +2,8 @@
 
 A powerful Dify plugin for invoking Dubbo services. Supports direct connection to Dubbo services or service discovery through registries (such as ZooKeeper, Nacos). Fully supports complex parameter types, including nested objects, collections, Maps, and multi-parameter method invocations.
 
-License: Apache 2.0 | [中文简体](README_zh.md) | English
+[![English](https://img.shields.io/badge/Language-English-blue)](README.md)
+[![中文简体](https://img.shields.io/badge/Language-简体中文-red)](README_zh.md)
 
 🚀 Dubbo Invoker — Providing powerful Dubbo service invocation capabilities for AI applications!
 
@@ -215,14 +216,6 @@ grep dubbo pom.xml
 - Computation services: `60000ms` (60 seconds) - Default
 - Complex business services: `120000ms` (2 minutes)
 - Batch processing services: `300000ms` (5 minutes)
-
-**Monitoring and Optimization:**
-```yaml
-# Monitor call time in workflow
-Start Time: {{start_time}}
-Call Result: {{dubbo_result}}
-Elapsed Time: {{elapsed_time}}
-```
 
 ### Field Validation Rules
 
