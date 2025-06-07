@@ -1,193 +1,117 @@
-# Dubbo调用器使用指南
+## User Guide of how to develop a Dify Plugin
 
-本插件用于调用Dubbo服务，支持通过注册中心（如ZooKeeper、Nacos）发现服务或直接连接服务。
+Hi there, looks like you have already created a Plugin, now let's get you started with the development!
 
-## 基本概念
+### Choose a Plugin type you want to develop
 
-[Dubbo](https://dubbo.apache.org/zh-cn/) 是一个高性能、轻量级的开源Java RPC框架，提供了三大核心能力：面向接口的远程方法调用，智能容错和负载均衡，以及服务自动注册和发现。
+Before start, you need some basic knowledge about the Plugin types, Plugin supports to extend the following abilities in Dify:
+- **Tool**: Tool Providers like Google Search, Stable Diffusion, etc. it can be used to perform a specific task.
+- **Model**: Model Providers like OpenAI, Anthropic, etc. you can use their models to enhance the AI capabilities.
+- **Endpoint**: Like Service API in Dify and Ingress in Kubernetes, you can extend a http service as an endpoint and control its logics using your own code.
 
-## 配置选项
+Based on the ability you want to extend, we have divided the Plugin into three types: **Tool**, **Model**, and **Extension**.
 
-使用本插件时，您需要提供以下信息：
+- **Tool**: It's a tool provider, but not only limited to tools, you can implement an endpoint there, for example, you need both `Sending Message` and `Receiving Message` if you are building a Discord Bot, **Tool** and **Endpoint** are both required.
+- **Model**: Just a model provider, extending others is not allowed.
+- **Extension**: Other times, you may only need a simple http service to extend the functionalities, **Extension** is the right choice for you.
 
-1. **注册中心地址或服务URI**（二选一）
-   - **注册中心地址**：使用格式 `zookeeper://host:port` 或 `nacos://host:port`，例如 `zookeeper://127.0.0.1:2181` 或 `nacos://127.0.0.1:8848`
-   - **服务URI**：直接连接服务的URI，格式为 `dubbo://host:port`，例如 `dubbo://127.0.0.1:20880`
+I believe you have chosen the right type for your Plugin while creating it, if not, you can change it later by modifying the `manifest.yaml` file.
 
-2. **接口名称**（必填）
-   - Dubbo接口的完整类名，例如 `com.example.service.UserService`
+### Manifest
 
-3. **方法名**（必填）
-   - 要调用的方法名，例如 `getUserById`
+Now you can edit the `manifest.yaml` file to describe your Plugin, here is the basic structure of it:
 
-4. **参数**（可选，两种方式二选一）
-   - **传统方式**：使用`params`参数提供JSON字符串，例如 `{"id": 123}`
-   - **类型明确方式**：使用`parameter_types`和`parameter_values`参数明确指定类型和值
+- version(version, required)：Plugin's version
+- type(type, required)：Plugin's type, currently only supports `plugin`, future support `bundle`
+- author(string, required)：Author, it's the organization name in Marketplace and should also equals to the owner of the repository
+- label(label, required)：Multi-language name
+- created_at(RFC3339, required)：Creation time, Marketplace requires that the creation time must be less than the current time
+- icon(asset, required)：Icon path
+- resource (object)：Resources to be applied
+  - memory (int64)：Maximum memory usage, mainly related to resource application on SaaS for serverless, unit bytes
+  - permission(object)：Permission application
+    - tool(object)：Reverse call tool permission
+      - enabled (bool)
+    - model(object)：Reverse call model permission
+      - enabled(bool)
+      - llm(bool)
+      - text_embedding(bool)
+      - rerank(bool)
+      - tts(bool)
+      - speech2text(bool)
+      - moderation(bool)
+    - node(object)：Reverse call node permission
+      - enabled(bool) 
+    - endpoint(object)：Allow to register endpoint permission
+      - enabled(bool)
+    - app(object)：Reverse call app permission
+      - enabled(bool)
+    - storage(object)：Apply for persistent storage permission
+      - enabled(bool)
+      - size(int64)：Maximum allowed persistent memory, unit bytes
+- plugins(object, required)：Plugin extension specific ability yaml file list, absolute path in the plugin package, if you need to extend the model, you need to define a file like openai.yaml, and fill in the path here, and the file on the path must exist, otherwise the packaging will fail.
+  - Format
+    - tools(list[string]): Extended tool suppliers, as for the detailed format, please refer to [Tool Guide](https://docs.dify.ai/docs/plugins/standard/tool_provider)
+    - models(list[string])：Extended model suppliers, as for the detailed format, please refer to [Model Guide](https://docs.dify.ai/docs/plugins/standard/model_provider)
+    - endpoints(list[string])：Extended Endpoints suppliers, as for the detailed format, please refer to [Endpoint Guide](https://docs.dify.ai/docs/plugins/standard/endpoint_group)
+  - Restrictions
+    - Not allowed to extend both tools and models
+    - Not allowed to have no extension
+    - Not allowed to extend both models and endpoints
+    - Currently only supports up to one supplier of each type of extension
+- meta(object)
+  - version(version, required)：manifest format version, initial version 0.0.1
+  - arch(list[string], required)：Supported architectures, currently only supports amd64 arm64
+  - runner(object, required)：Runtime configuration
+    - language(string)：Currently only supports python
+    - version(string)：Language version, currently only supports 3.12
+    - entrypoint(string)：Program entry, in python it should be main
 
-## 参数类型
+### Install Dependencies
 
-### 传统方式（params）
+- First of all, you need a Python 3.11+ environment, as our SDK requires that.
+- Then, install the dependencies:
+    ```bash
+    pip install -r requirements.txt
+    ```
+- If you want to add more dependencies, you can add them to the `requirements.txt` file, once you have set the runner to python in the `manifest.yaml` file, `requirements.txt` will be automatically generated and used for packaging and deployment.
 
-对于简单场景，可以直接使用JSON格式参数：
+### Implement the Plugin
 
-```json
-{
-  "service_uri": "dubbo://10.0.0.2:20880",
-  "interface": "com.example.UserService",
-  "method": "getUserName",
-  "params": "{\"userId\": 12345}"
-}
+Now you can start to implement your Plugin, by following these examples, you can quickly understand how to implement your own Plugin:
+
+- [OpenAI](https://github.com/langgenius/dify-plugin-sdks/tree/main/python/examples/openai): best practice for model provider
+- [Google Search](https://github.com/langgenius/dify-plugin-sdks/tree/main/python/examples/google): a simple example for tool provider
+- [Neko](https://github.com/langgenius/dify-plugin-sdks/tree/main/python/examples/neko): a funny example for endpoint group
+
+### Test and Debug the Plugin
+
+You may already noticed that a `.env.example` file in the root directory of your Plugin, just copy it to `.env` and fill in the corresponding values, there are some environment variables you need to set if you want to debug your Plugin locally.
+
+- `INSTALL_METHOD`: Set this to `remote`, your plugin will connect to a Dify instance through the network.
+- `REMOTE_INSTALL_HOST`: The host of your Dify instance, you can use our SaaS instance `https://debug.dify.ai`, or self-hosted Dify instance.
+- `REMOTE_INSTALL_PORT`: The port of your Dify instance, default is 5003
+- `REMOTE_INSTALL_KEY`: You should get your debugging key from the Dify instance you used, at the right top of the plugin management page, you can see a button with a `debug` icon, click it and you will get the key.
+
+Run the following command to start your Plugin:
+
+```bash
+python -m main
 ```
 
-此方式无需明确指定参数类型，但在处理复杂类型或多参数时可能出现歧义。
+Refresh the page of your Dify instance, you should be able to see your Plugin in the list now, but it will be marked as `debugging`, you can use it normally, but not recommended for production.
 
-### 类型明确方式（parameter_types + parameter_values）
+### Package the Plugin
 
-对于复杂参数场景，强烈推荐使用此方式调用：
+After all, just package your Plugin by running the following command:
 
-#### 场景1：基础类型参数
-
-```json
-{
-  "service_uri": "dubbo://10.0.0.2:20880",
-  "interface": "com.example.UserService",
-  "method": "findUser",
-  "parameter_types": "int,java.lang.String",
-  "parameter_values": "[123, \"张三\"]"
-}
+```bash
+dify-plugin plugin package ./ROOT_DIRECTORY_OF_YOUR_PLUGIN
 ```
 
-#### 场景2：复杂对象参数
+you will get a `plugin.difypkg` file, that's all, you can submit it to the Marketplace now, look forward to your Plugin being listed!
 
-```json
-{
-  "service_uri": "dubbo://10.0.0.2:20880",
-  "interface": "com.example.UserService",
-  "method": "saveUser",
-  "parameter_types": "com.example.UserDTO",
-  "parameter_values": "{\"name\":\"张三\", \"age\":25, \"address\":{\"city\":\"上海\"}}"
-}
-```
 
-#### 场景3：数组参数
+## User Privacy Policy
 
-```json
-{
-  "service_uri": "dubbo://10.0.0.2:20880",
-  "interface": "com.example.UserService",
-  "method": "batchDelete",
-  "parameter_types": "java.lang.Integer[]",
-  "parameter_values": "[1, 2, 3, 4, 5]"
-}
-```
-
-#### 场景4：集合类型参数
-
-```json
-{
-  "service_uri": "dubbo://10.0.0.2:20880",
-  "interface": "com.example.UserService",
-  "method": "updateTags",
-  "parameter_types": "int,java.util.List",
-  "parameter_values": "[123, [\"标签1\", \"标签2\", \"标签3\"]]"
-}
-```
-
-## 底层实现
-
-本插件基于可扩展的协议框架设计，目前支持：
-
-### 1. Dubbo原生协议
-
-插件默认使用Dubbo原生协议进行服务调用：
-
-- 使用Hessian序列化格式
-- 基于TCP长连接通信
-- 支持心跳检测机制
-- 支持的数据类型：bool、int、long、float、double、String、Object等
-- 与Java版Dubbo完全兼容
-
-### 2. Telnet命令行模式
-
-当原生协议调用失败时，插件会自动切换到telnet方式作为备选：
-
-- 使用Dubbo内置的telnet命令行接口
-- 通过TCP连接直接发送命令
-- 不依赖额外协议库
-
-## 协议扩展
-
-该插件设计为可扩展的协议框架，未来将支持：
-
-- **Triple协议**：基于HTTP/2的gRPC协议
-- **REST协议**：基于HTTP的RESTful接口
-
-## 使用场景
-
-本插件适用于以下场景：
-
-1. 需要从AI应用中调用已有的Dubbo服务
-2. 与企业内部系统集成，调用基于Dubbo的微服务
-3. 测试Dubbo服务的可用性和功能
-
-## 注意事项
-
-- 支持ZooKeeper和Nacos作为注册中心
-- 所调用的Dubbo服务需要能够从您的环境访问（网络可达）
-- 参数必须是有效的JSON格式
-- 当前实现仅支持Dubbo原生协议（Hessian序列化），未来将支持更多协议
-- 服务调用超时默认为10秒，如需更长时间请提前考虑
-- 对于复杂参数类型，建议使用`parameter_types`和`parameter_values`参数
-
-## 常见问题排查
-
-1. **连接失败**
-   - 检查注册中心地址或服务URI是否正确
-   - 验证网络连接是否通畅
-   - 确认防火墙设置允许相关端口访问
-
-2. **服务未找到**
-   - 确认接口名称拼写正确，包括完整的包名
-   - 检查服务是否已在注册中心注册
-   - 尝试使用直连方式验证服务是否可用
-
-3. **调用异常**
-   - 验证方法名是否正确
-   - 检查参数格式和类型是否与服务端要求一致
-   - 对于复杂类型参数，使用类型明确的调用方式
-   - 查看服务端日志以获取更详细的错误信息
-
-## 基本调用示例
-
-### 通过ZooKeeper调用服务
-
-```
-{
-  "registry_address": "zookeeper://10.0.0.1:2181",
-  "interface": "com.example.UserService",
-  "method": "getUserName",
-  "params": "{\"userId\": 12345}"
-}
-```
-
-### 通过Nacos调用服务
-
-```
-{
-  "registry_address": "nacos://10.0.0.1:8848",
-  "interface": "com.example.UserService",
-  "method": "getUserName",
-  "params": "{\"userId\": 12345}"
-}
-```
-
-### 直连方式调用服务
-
-```
-{
-  "service_uri": "dubbo://10.0.0.2:20880",
-  "interface": "com.example.UserService",
-  "method": "getUserName",
-  "params": "{\"userId\": 12345}"
-}
-``` 
+Please fill in the privacy policy of the plugin if you want to make it published on the Marketplace, refer to [PRIVACY.md](PRIVACY.md) for more details.

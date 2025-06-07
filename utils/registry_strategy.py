@@ -105,13 +105,13 @@ class ZookeeperRegistryStrategy(RegistryStrategy):
             self.logger.debug(f"ZooKeeper: get providers: {len(providers)}")
             self.logger.debug(f"ZooKeeper: providers: {providers}")
             
-            # 支持多种协议的提供者
+            # Support providers with multiple protocols
             protocol_providers = []
             for provider in providers:
                 decoded_provider = urllib.parse.unquote(provider)
                 self.logger.debug(f"ZooKeeper: decoded provider: {decoded_provider}")
                 
-                # 检查是否是有效的URI（含协议前缀）
+                # Check if it's a valid URI (with protocol prefix)
                 if '://' in decoded_provider:
                     protocol_providers.append(provider)
             
@@ -124,11 +124,11 @@ class ZookeeperRegistryStrategy(RegistryStrategy):
                 provider_url = urllib.parse.unquote(provider)
                 try:
                     url_result = urllib.parse.urlparse(provider_url)
-                    # 提取协议和主机:端口
+                    # Extract protocol and host:port
                     protocol = url_result.scheme
                     host = url_result.netloc
                     
-                    # 完整URI
+                    # Complete URI
                     uri = f"{protocol}://{host}"
                     
                     query_params = dict(urllib.parse.parse_qsl(url_result.query))
@@ -194,7 +194,7 @@ class NacosRegistryStrategy(RegistryStrategy):
                         host_port = instance.get('port')
                         weight = float(instance.get('weight', 1.0))
                         
-                        # 获取协议，默认为dubbo
+                        # Get protocol, default is dubbo
                         metadata = instance.get('metadata', {})
                         protocol = metadata.get('protocol', 'dubbo')
                         
@@ -212,7 +212,7 @@ class NacosRegistryStrategy(RegistryStrategy):
                     raise ValueError(f"Nacos: service {interface} not found in registry")
             except Exception as e:
                 self.logger.warning(f"Nacos: service query failed: {str(e)}")
-                # 重新抛出异常而不是忽略
+                # Re-raise exception instead of ignoring
                 raise e
         except Exception as e:
             self.logger.error(f"Nacos: get provider failed: {str(e)}", exc_info=True)
@@ -234,7 +234,9 @@ class RegistryFactory:
             Registry strategy instance
         """
         if registry_type == "zookeeper":
-            return ZookeeperRegistryStrategy()
+            # TODO: Temporarily not supporting zk, async threads in dify plugin environment cannot get provider
+            raise ValueError(f"Registry: unsupported type: {registry_type}") 
+            # return ZookeeperRegistryStrategy()
         elif registry_type == "nacos":
             return NacosRegistryStrategy()
         else:

@@ -6,9 +6,9 @@ identity:
     zh_Hans: 调用Dubbo服务
 description:
   human:
-    en_US: Call Dubbo services through direct connection or service discovery via registry centers like ZooKeeper.
-    zh_Hans: 通过直连或使用ZooKeeper等注册中心调用Dubbo服务。
-  llm: Call a Dubbo service by providing either registry center information or direct connection details.
+    en_US: Call Dubbo services through direct connection or service discovery via registry centers like ZooKeeper and Nacos. Supports complex parameter types including nested objects, collections, maps, and multi-parameter method calls with precise type specification.
+    zh_Hans: 通过直连或使用ZooKeeper、Nacos等注册中心调用Dubbo服务。支持复杂参数类型，包括嵌套对象、集合、Map以及多参数方法调用，并提供精确的类型指定功能。
+  llm: Call a Dubbo service by providing either registry center information or direct connection details. Supports complex parameter types including objects, collections, arrays, and multi-parameter method calls with precise Java type specification. Uses Hessian serialization for full compatibility with Java Dubbo services.
 extra:
   python:
     source: tools/dubbo_invoke.py
@@ -20,9 +20,9 @@ parameters:
       en_US: Registry Address
       zh_Hans: 注册中心地址
     human_description:
-      en_US: The address of registry center (e.g. zookeeper://127.0.0.1:2181).
-      zh_Hans: 注册中心地址，如 zookeeper://127.0.0.1:2181。
-    llm_description: Registry center address in format like zookeeper://host:port.
+      en_US: The address of registry center (e.g. zookeeper://127.0.0.1:2181 or nacos://127.0.0.1:8848). Either this or service_uri must be provided.
+      zh_Hans: 注册中心地址，如 zookeeper://127.0.0.1:2181 或 nacos://127.0.0.1:8848。必须提供此参数或service_uri中的一个。
+    llm_description: Registry center address in format like zookeeper://host:port or nacos://host:port. Either this or service_uri must be provided.
     form: llm
   - name: service_uri
     type: string
@@ -31,9 +31,9 @@ parameters:
       en_US: Service URI
       zh_Hans: 服务URI
     human_description:
-      en_US: The direct URI of the Dubbo service including protocol (e.g. dubbo://127.0.0.1:20880).
-      zh_Hans: Dubbo服务的直连URI，包含协议，如 dubbo://127.0.0.1:20880。
-    llm_description: Direct service URI in format like protocol://host:port.
+      en_US: The direct URI of the Dubbo service including protocol (e.g. dubbo://127.0.0.1:20880). Either this or registry_address must be provided.
+      zh_Hans: Dubbo服务的直连URI，包含协议，如 dubbo://127.0.0.1:20880。必须提供此参数或registry_address中的一个。
+    llm_description: Direct service URI in format like protocol://host:port. Either this or registry_address must be provided.
     form: llm
   - name: interface
     type: string
@@ -64,9 +64,9 @@ parameters:
       en_US: Parameter Types
       zh_Hans: 参数类型
     human_description:
-      en_US: Java types of parameters separated by commas. Supports generic types (e.g. "int,Map<String,Integer>,List<User>").
-      zh_Hans: 参数的Java类型，用逗号分隔。支持泛型类型（如"int,Map<String,Integer>,List<User>"）。
-    llm_description: Comma-separated Java type names for method parameters. Supports generic types like Map<String,Integer> or List<User>. The parser correctly handles nested brackets, so commas inside generic type declarations are not treated as parameter separators.
+      en_US: Java types of parameters separated by commas. Supports all Java types including primitives, objects, generics, and arrays. Use full generic type specifications for complex collections.
+      zh_Hans: 参数的Java类型，用逗号分隔。支持所有Java类型，包括基本类型、对象、泛型和数组。对于复杂集合类型请使用完整的泛型类型规范。
+    llm_description: Comma-separated Java type names for method parameters. Supports all Java types including primitives, wrapper classes, custom objects, generic collections, and arrays. The parser correctly handles nested brackets in generic types. For complex collections, always specify the full generic type.
     form: llm
   - name: parameter_values
     type: string
@@ -75,18 +75,7 @@ parameters:
       en_US: Parameter Values
       zh_Hans: 参数值
     human_description:
-      en_US: JSON representation of parameter values (array for multiple parameters, object for single complex parameter).
-      zh_Hans: 参数值的JSON表示（数组表示多个参数，对象表示单个复杂参数）。
-    llm_description: JSON representation of parameter values matching the parameter_types.
+      en_US: JSON representation of parameter values. For single parameter use the value directly. For multiple parameters use a JSON array where each element corresponds to a parameter. Complex objects are automatically converted to proper Java objects based on parameter_types.
+      zh_Hans: 参数值的JSON表示。单个参数直接使用该值。多个参数使用JSON数组，每个元素对应一个参数。复杂对象会根据parameter_types自动转换为适当的Java对象。
+    llm_description: JSON representation of parameter values matching the parameter_types. For single parameter methods, provide the value directly. For multi-parameter methods, provide a JSON array where each element corresponds to one parameter in the same order as parameter_types.
     form: llm
-  - name: params
-    type: string
-    required: false
-    label:
-      en_US: Parameters (Legacy)
-      zh_Hans: 参数（传统方式）
-    human_description:
-      en_US: JSON string of parameters for the method (e.g. {"id":123}). Use parameter_types and parameter_values for more complex scenarios.
-      zh_Hans: 方法参数的JSON字符串，如 {"id":123}。复杂场景请使用parameter_types和parameter_values参数。
-    llm_description: Legacy parameter format. Prefer using parameter_types and parameter_values for better type control.
-    form: llm 

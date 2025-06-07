@@ -11,74 +11,85 @@ from utils.dubbo_utils import dubbo_client_utils
 
 
 class DubboInvokeTool(Tool):
-    """用于调用Dubbo服务的工具"""
+    """Tool for invoking Dubbo services"""
 
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage, None, None]:
-        """执行Dubbo服务调用"""
+        """Execute Dubbo service invocation"""
         
-        # 获取参数
+        # Get credentials (Dubbo version and timeout configuration)
+        # 添加容错处理，如果runtime不存在则使用默认值
+        if hasattr(self, 'runtime') and self.runtime and hasattr(self.runtime, 'credentials'):
+            credentials = self.runtime.credentials
+            dubbo_version = credentials.get("dubbo_version", "2.4.10")
+            timeout = int(credentials.get("timeout", "60000"))
+        else:
+            # 测试环境或runtime不可用时使用默认值
+            dubbo_version = "2.4.10"
+            timeout = 60000
+        
+        # Get parameters
         registry_address = tool_parameters.get("registry_address", "")
         service_uri = tool_parameters.get("service_uri", "")
         interface = tool_parameters.get("interface", "")
         method = tool_parameters.get("method", "")
         
-        # 获取参数相关字段
+        # Get parameter related fields
         parameter_types = tool_parameters.get("parameter_types", None)
         parameter_values = tool_parameters.get("parameter_values", None)
         
-        # 验证参数
+        # Validate parameters
         if not interface:
-            yield self.create_text_message("错误: 必须提供接口名称")
+            yield self.create_text_message("Error: Interface name must be provided")
             return
             
         if not method:
-            yield self.create_text_message("错误: 必须提供方法名")
+            yield self.create_text_message("Error: Method name must be provided")
             return
             
         if not registry_address and not service_uri:
-            yield self.create_text_message("错误: 必须提供注册中心地址或服务URI")
+            yield self.create_text_message("Error: Registry address or service URI must be provided")
             return
             
-        # 如果两者都提供了，使用服务URI
+        # If both are provided, use service URI
         if registry_address and service_uri:
-            logging.warning("同时提供了注册中心地址和服务URI，将优先使用服务URI")
+            logging.info("Both registry address and service URI provided, service URI will be used with priority")
         
         try:
-            # 计时开始
+            # Start timing
             start_time = time.time()
             
-            # 处理参数
+            # Process parameters
             param_objects, param_types = self._process_typed_parameters(parameter_types, parameter_values)
             
-            # 执行调用
+            # Execute invocation
             if service_uri:
-                logging.info(f"开始调用服务: {service_uri}, {interface}.{method}, 参数: {param_objects}, 类型: {param_types}")
+                logging.info(f"Start invoking service: {service_uri}, {interface}.{method}, params: {param_objects}, types: {param_types}, dubbo_version: {dubbo_version}, timeout: {timeout}ms")
                 result = dubbo_client_utils.invoke_service(
-                    service_uri, interface, method, param_objects, param_types
+                    service_uri, interface, method, param_objects, param_types, dubbo_version, timeout
                 )
             else:
-                logging.info(f"开始通过注册中心调用服务: {registry_address}, {interface}.{method}, 参数: {param_objects}, 类型: {param_types}")
+                logging.info(f"Start invoking service through registry: {registry_address}, {interface}.{method}, params: {param_objects}, types: {param_types}, dubbo_version: {dubbo_version}, timeout: {timeout}ms")
                 result = dubbo_client_utils.invoke_with_registry(
-                    registry_address, interface, method, param_objects, param_types
+                    registry_address, interface, method, param_objects, param_types, dubbo_version, timeout
                 )
                 
-            # 计算耗时
+            # Calculate elapsed time
             elapsed_time = time.time() - start_time
-            logging.info(f"Dubbo服务调用完成，耗时: {elapsed_time:.2f}秒")
+            logging.info(f"Dubbo service invocation completed, elapsed time: {elapsed_time:.2f} seconds")
             
-            # 判断调用是否成功
+            # Check if invocation was successful
             if result.get("success", False):
-                logging.info("调用成功")
-                # 返回结果
+                logging.info("Invocation successful")
+                # Return result
                 yield self.create_text_message(json.dumps(result, ensure_ascii=False, indent=2))
             else:
-                # 调用失败
-                error_message = f"调用Dubbo服务失败: {result.get('message', '未知错误')}"
+                # Invocation failed
+                error_message = f"Dubbo service invocation failed: {result.get('message', 'Unknown error')}"
                 logging.error(error_message)
                 yield self.create_text_message(error_message)
             
         except Exception as e:
-            error_message = f"调用Dubbo服务异常: {str(e)}"
+            error_message = f"Dubbo service invocation exception: {str(e)}"
             logging.error(error_message, exc_info=True)
             yield self.create_text_message(error_message)
     
@@ -86,76 +97,76 @@ class DubboInvokeTool(Tool):
         self, parameter_types: str, parameter_values: str
     ) -> tuple[Any, List[str]]:
         """
-        处理带类型的参数
+        Process typed parameters
         
         Args:
-            parameter_types: 参数类型字符串，逗号分隔
-            parameter_values: 参数值的JSON字符串
+            parameter_types: Parameter types string, comma separated
+            parameter_values: Parameter values JSON string
             
         Returns:
-            tuple: (处理后的参数对象, 参数类型列表)
+            tuple: (processed parameter object, parameter types list)
         """
-        # 标准化参数值：将空字符串或只包含空白的字符串转换为None
+        # Normalize parameter values: convert empty string or whitespace-only string to None
         if parameter_values is not None and parameter_values.strip() == "":
             parameter_values = None
         
-        # 标准化参数类型：将空字符串或只包含空白的字符串转换为None
+        # Normalize parameter types: convert empty string or whitespace-only string to None
         if parameter_types is not None and parameter_types.strip() == "":
             parameter_types = None
         
-        # 处理无参数调用的情况
+        # Handle no-parameter invocation
         if not parameter_types and not parameter_values:
-            logging.info("检测到无参数调用")
+            logging.info("Detected no-parameter invocation")
             return None, []
         
-        # 如果只有parameter_types为空，但parameter_values有值，使用传统调用方式
+        # If only parameter_types is empty but parameter_values has value, use traditional invocation
         if not parameter_types and parameter_values:
-            logging.info("检测到传统参数调用方式（无类型信息）")
+            logging.info("Detected traditional parameter invocation (no type information)")
             try:
                 values = json.loads(parameter_values)
-                return values, None  # 返回None表示使用传统调用
+                return values, None  # Return None to indicate traditional invocation
             except json.JSONDecodeError as e:
-                logging.error(f"传统参数值JSON解析失败: {e}")
-                raise ValueError(f"参数值必须是有效的JSON格式: {e}")
+                logging.error(f"Traditional parameter value JSON parsing failed: {e}")
+                raise ValueError(f"Parameter values must be in valid JSON format: {e}")
         
-        # 如果只有parameter_values为空，但parameter_types有值，这也是错误的  
+        # If only parameter_values is empty but parameter_types has value, this is also an error  
         if parameter_types and not parameter_values:
-            raise ValueError("提供了参数类型但未提供参数值")
+            raise ValueError("Parameter types provided but parameter values not provided")
         
-        # 解析参数类型列表 - 使用智能解析处理泛型类型
+        # Parse parameter types list - use smart parsing to handle generic types
         types_list = self._parse_parameter_types(parameter_types)
         
-        # 解析参数值
+        # Parse parameter values
         try:
             values = json.loads(parameter_values)
         except json.JSONDecodeError as e:
-            logging.error(f"参数值JSON解析失败: {e}")
-            raise ValueError(f"参数值必须是有效的JSON格式: {e}")
+            logging.error(f"Parameter value JSON parsing failed: {e}")
+            raise ValueError(f"Parameter values must be in valid JSON format: {e}")
         
-        # 根据类型数量确定如何处理参数值
+        # Determine how to handle parameter values based on number of types
         if len(types_list) == 1:
-            # 单参数类型
-            # 不管values是否为数组，都作为一个参数处理
+            # Single parameter type
+            # Regardless of whether values is an array, treat it as one parameter
             return values, types_list
         else:
-            # 多参数类型
+            # Multiple parameter types
             if not isinstance(values, list):
-                raise ValueError(f"多参数调用时，parameter_values必须是JSON数组")
+                raise ValueError(f"For multi-parameter invocation, parameter_values must be a JSON array")
             
             if len(values) != len(types_list):
-                raise ValueError(f"参数值数量({len(values)})与参数类型数量({len(types_list)})不匹配")
+                raise ValueError(f"Number of parameter values ({len(values)}) does not match number of parameter types ({len(types_list)})")
             
             return values, types_list
     
     def _parse_parameter_types(self, parameter_types: str) -> List[str]:
         """
-        智能解析参数类型字符串，正确处理包含泛型的Java类型
+        Intelligently parse parameter types string, correctly handle Java types with generics
         
         Args:
-            parameter_types: 参数类型字符串，如 "int,Map<String,Integer>,List<User>"
+            parameter_types: Parameter types string, e.g., "int,Map<String,Integer>,List<User>"
             
         Returns:
-            解析后的类型列表
+            Parsed types list
         """
         if not parameter_types or not parameter_types.strip():
             return []
@@ -172,14 +183,14 @@ class DubboInvokeTool(Tool):
                 bracket_count -= 1
                 current_type += char
             elif char == ',' and bracket_count == 0:
-                # 只有在没有嵌套尖括号时，逗号才是参数分隔符
+                # Only when there are no nested angle brackets, comma is a parameter separator
                 if current_type.strip():
                     types_list.append(current_type.strip())
                 current_type = ""
             else:
                 current_type += char
         
-        # 添加最后一个类型
+        # Add the last type
         if current_type.strip():
             types_list.append(current_type.strip())
         
@@ -187,37 +198,37 @@ class DubboInvokeTool(Tool):
     
     def _process_legacy_parameters(self, legacy_params: Optional[str]) -> Any:
         """
-        处理传统格式的参数
+        Process legacy format parameters
         
         Args:
-            legacy_params: 参数字符串
+            legacy_params: Parameter string
             
         Returns:
-            处理后的参数对象
+            Processed parameter object
         """
         param_objects = None
         
         if legacy_params is not None:
             if legacy_params == "":
-                # 空字符串情况
+                # Empty string case
                 param_objects = None
-                logging.info("检测到空字符串参数")
+                logging.info("Detected empty string parameter")
             elif legacy_params.strip():
                 params_str = legacy_params.strip()
-                # 尝试解析为JSON
+                # Try to parse as JSON
                 try:
                     param_objects = json.loads(params_str)
-                    logging.info(f"解析为JSON参数: {param_objects}")
+                    logging.info(f"Parsed as JSON parameter: {param_objects}")
                 except json.JSONDecodeError:
-                    # 不是有效的JSON，检查是否为带引号的字符串
+                    # Not valid JSON, check if it's a quoted string
                     if ((params_str.startswith('"') and params_str.endswith('"')) or 
                         (params_str.startswith("'") and params_str.endswith("'"))):
-                        # 去掉外层引号
+                        # Remove outer quotes
                         param_objects = params_str[1:-1]
-                        logging.info(f"检测到字符串参数: {param_objects}")
+                        logging.info(f"Detected string parameter: {param_objects}")
                     else:
-                        # 作为普通字符串处理
+                        # Treat as plain string
                         param_objects = params_str
-                        logging.info(f"作为普通字符串处理: {param_objects}")
+                        logging.info(f"Treated as plain string: {param_objects}")
         
         return param_objects

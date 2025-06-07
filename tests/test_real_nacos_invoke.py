@@ -128,7 +128,7 @@ class RealNacosTest:
             "interface": self.interface_name,
             "method": "sayHello",
             "parameter_types": "java.lang.String",
-            "parameter_values": '"1"'  # 恢复中文字符串
+            "parameter_values": '"张三"'
         }
         
         return self._execute_test("sayHello(String)", tool_parameters)
@@ -165,14 +165,11 @@ class RealNacosTest:
         
         names_list = ["lisi", "zhangsan", "wangwu"]
         
-        # 尝试不同的调用方式
-        # 注意：这是Dubbo 3.x中已知的Hessian序列化问题
-        # 参考：https://github.com/apache/dubbo-hessian-lite/issues/55
         tool_parameters = {
             "registry_address": self.nacos_registry,
             "interface": self.interface_name,
             "method": "sayHelloList",
-            "parameter_types": "java.util.List",
+            "parameter_types": "java.util.List<java.lang.String>",
             "parameter_values": json.dumps(names_list)
         }
         
@@ -197,11 +194,64 @@ class RealNacosTest:
             "registry_address": self.nacos_registry,
             "interface": self.interface_name,
             "method": "sayHelloMap",
-            "parameter_types": "java.util.Map",
+            "parameter_types": "java.util.Map<java.lang.String,java.lang.Object>",
             "parameter_values": json.dumps(param_map)
         }
         
         return self._execute_test("sayHelloMap(Map<String,Object>)", tool_parameters)
+    
+    def test_say_hello_list_object(self):
+        """测试sayHelloListObject(List<HelloRequest> requests)方法"""
+        print("\n" + "=" * 60)
+        print("测试 sayHelloListObject(List<HelloRequest> requests) - 对象列表参数调用")
+        print("=" * 60)
+        
+        # 创建HelloRequest对象列表
+        requests_list = [
+            {
+                "name": "张三",
+                "age": 25,
+                "message": "第一个请求"
+            },
+            {
+                "name": "李四",
+                "age": 30,
+                "message": "第二个请求"
+            },
+            {
+                "name": "王五",
+                "age": 28,
+                "message": "第三个请求"
+            }
+        ]
+        
+        tool_parameters = {
+            "registry_address": self.nacos_registry,
+            "interface": self.interface_name,
+            "method": "sayHelloListObject",
+            "parameter_types": "java.util.List<io.arrenxxxxx.dubbotesthub.api.HelloRequest>",
+            "parameter_values": json.dumps(requests_list)
+        }
+        
+        return self._execute_test("sayHelloListObject(List<HelloRequest>)", tool_parameters)
+    
+    def test_say_hello_multiple_params(self):
+        """测试sayHello(String name, Integer age, String message)方法"""
+        print("\n" + "=" * 60)
+        print("测试 sayHello(String, Integer, String) - 多参数调用")
+        print("=" * 60)
+        
+        # 多参数调用，参数必须是JSON数组格式
+        parameters_array = ["测试用户", 25, "多参数测试消息"]
+        tool_parameters = {
+            "registry_address": self.nacos_registry,
+            "interface": self.interface_name,
+            "method": "sayHello",
+            "parameter_types": "java.lang.String,java.lang.Integer,java.lang.String",
+            "parameter_values": json.dumps(parameters_array)
+        }
+        
+        return self._execute_test("sayHello(String,Integer,String)", tool_parameters)
     
     def _execute_test(self, test_name: str, tool_parameters: dict) -> bool:
         """执行测试并返回结果"""
@@ -274,7 +324,9 @@ class RealNacosTest:
             ("sayHello(String)", self.test_say_hello_with_string),
             ("sayHello(HelloRequest)", self.test_say_hello_with_object),
             ("sayHelloList(List<String>)", self.test_say_hello_list),
-            ("sayHelloMap(Map<String,Object>)", self.test_say_hello_map)
+            ("sayHelloMap(Map<String,Object>)", self.test_say_hello_map),
+            ("sayHelloListObject(List<HelloRequest>)", self.test_say_hello_list_object),
+            ("sayHello(String,Integer,String)", self.test_say_hello_multiple_params)
         ]
         
         results = {}

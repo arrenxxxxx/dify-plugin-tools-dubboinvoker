@@ -1,13 +1,22 @@
-import json
+"""
+Dubbo 客户端工具类 - 用于调用 Dubbo 服务
+
+优化点：
+1. 移除了未使用的导入 (json, urllib.parse, random, time, asyncio)
+2. 将重复的类型集合提取为类常量，提高性能和可维护性
+3. 预编译正则表达式，避免重复编译
+4. 添加通用的类型提取方法，减少代码重复
+5. 重构参数转换逻辑，通过 _convert_single_param 方法消除重复代码
+6. 改进错误处理，支持 IPv6 地址和端口范围验证
+7. 添加协议处理器缓存，避免重复创建对象
+8. 完善文档和类型注解
+"""
+
 import logging
 import re
-import urllib.parse
-from typing import Any, Dict, List, Optional, Tuple, Union
-import random
+from typing import Any, Dict, List, Optional, Tuple
 import sys
 import os
-import time
-import asyncio
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dubbo.client import DubboClient
 from dubbo.codec.encoder import Object
@@ -15,7 +24,7 @@ from dubbo.codec.encoder import Object
 from utils.registry_strategy import RegistryFactory
 
 class ProtocolHandler:
-    """协议处理基类，定义接口规范"""
+    """Protocol handler base class, defines interface specification"""
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -26,26 +35,60 @@ class ProtocolHandler:
         interface: str, 
         method: str, 
         params: Any, 
-        param_types: Optional[List[str]] = None
+        param_types: Optional[List[str]] = None,
+        dubbo_version: str = "2.4.10",
+        timeout: int = 60000
     ) -> Dict[str, Any]:
         """
-        调用服务方法
+        Invoke service method
         
         Parameters:
-            service_uri: 服务URI，包含协议、主机和端口
-            interface: 接口名
-            method: 方法名
-            params: 参数
-            param_types: 参数类型列表（可选）
+            service_uri: Service URI, including protocol, host and port
+            interface: Interface name
+            method: Method name
+            params: Parameters
+            param_types: Parameter types list (optional)
+            dubbo_version: Dubbo version (optional)
+            timeout: Timeout in milliseconds (optional)
             
         Returns:
-            调用结果
+            Invocation result
         """
-        raise NotImplementedError("子类必须实现此方法")
+        raise NotImplementedError("Subclasses must implement this method")
 
 
 class DubboProtocolHandler(ProtocolHandler):
-    """Dubbo原生协议（基于Hessian序列化）处理器"""
+    """Dubbo native protocol (based on Hessian serialization) handler"""
+    
+    # 类常量：基础类型集合
+    BASIC_TYPES = frozenset({
+        'java.lang.String', 'java.lang.Integer', 'java.lang.Long', 
+        'java.lang.Float', 'java.lang.Double', 'java.lang.Boolean',
+        'java.lang.Byte', 'java.lang.Short', 'java.lang.Character',
+        'int', 'long', 'float', 'double', 'boolean', 'byte', 'short', 'char'
+    })
+    
+    # 类常量：集合类型集合
+    COLLECTION_TYPES = frozenset({
+        'java.util.List', 'java.util.ArrayList', 'java.util.LinkedList',
+        'java.util.Map', 'java.util.HashMap', 'java.util.LinkedHashMap',
+        'java.util.Set', 'java.util.HashSet', 'java.util.LinkedHashSet'
+    })
+    
+    # 类常量：Map类型集合
+    MAP_TYPES = frozenset({
+        'java.util.Map', 'java.util.HashMap', 'java.util.LinkedHashMap',
+        'java.util.TreeMap', 'java.util.ConcurrentHashMap'
+    })
+    
+    # 类常量：List类型集合
+    LIST_TYPES = frozenset({
+        'java.util.List', 'java.util.ArrayList', 'java.util.LinkedList',
+        'java.util.Vector', 'java.util.Stack'
+    })
+    
+    # 编译一次的正则表达式
+    URI_PATTERN = re.compile(r'^(?:dubbo:\/\/)?([^\/]+)(?:\/.*)?$')
     
     def invoke(
         self, 
@@ -53,340 +96,351 @@ class DubboProtocolHandler(ProtocolHandler):
         interface: str, 
         method: str, 
         params: Any, 
-        param_types: Optional[List[str]] = None
+        param_types: Optional[List[str]] = None,
+        dubbo_version: str = "2.4.10",
+        timeout: int = 60000
     ) -> Dict[str, Any]:
         """
-        使用Dubbo原生协议调用服务
+        Invoke service using Dubbo native protocol
         
         Parameters:
-            service_uri: Dubbo服务URI，格式: dubbo://host:port
-            interface: 接口名
-            method: 方法名
-            params: 参数
-            param_types: 参数类型列表（可选）
+            service_uri: Dubbo service URI, format: dubbo://host:port
+            interface: Interface name
+            method: Method name
+            params: Parameters
+            param_types: Parameter types list (optional)
+            dubbo_version: Dubbo version (optional)
+            timeout: Timeout in milliseconds (optional)
             
         Returns:
-            调用结果
+            Invocation result
         """
         try:
-            # 解析URI，提取host:port
-            match = re.match(r'^(?:dubbo:\/\/)?([^\/]+)(?:\/.*)?$', service_uri)
+            # Parse URI, extract host:port
+            match = self.URI_PATTERN.match(service_uri)
             if not match:
                 return {
                     "success": False, 
                     "result": None, 
-                    "message": f"服务URI格式错误: {service_uri}, 应为dubbo://host:port或host:port"
+                    "message": f"Service URI format error: {service_uri}, should be dubbo://host:port or host:port"
                 }
             
             host_port = match.group(1)
             
-            # 验证host:port格式
+            # Validate host:port format
             try:
-                host, port = host_port.split(":")
-                port = int(port)
-            except ValueError:
+                if ':' not in host_port:
+                    raise ValueError("Missing port separator")
+                host, port_str = host_port.rsplit(":", 1)  # Use rsplit to handle IPv6
+                port = int(port_str)
+                if not (1 <= port <= 65535):
+                    raise ValueError("Port out of valid range")
+            except ValueError as ve:
                 return {
                     "success": False, 
                     "result": None, 
-                    "message": f"服务地址格式错误: {host_port}, 应为host:port格式"
+                    "message": f"Service address format error: {host_port}, should be host:port format. Details: {ve}"
                 }
             
-            # 创建DubboClient并调用服务
-            dubbo_client = DubboClient(interface, version='', host=host_port)
+            # Create DubboClient and invoke service with configured version
+            dubbo_client = DubboClient(interface, version='', dubbo_version=dubbo_version, host=host_port)
             
-            # 根据参数类型和参数值调用不同的方法
+            # Convert timeout from milliseconds to seconds for DubboClient
+            timeout_seconds = timeout / 1000.0
+            
+            # Call different methods based on parameter types and values
             if param_types is None:
-                # 兼容旧方式调用 - 使用正确的 dubbo-python2 API
+                # Compatible with old invocation method - use correct dubbo-python2 API
                 if params is None:
-                    result = dubbo_client.call(method)
+                    result = dubbo_client.call(method, timeout=timeout_seconds)
                 else:
-                    # 对于兼容模式，params 作为 args 参数传递
-                    result = dubbo_client.call(method, params)
+                    # For compatibility mode, params are passed as args parameter
+                    result = dubbo_client.call(method, params, timeout=timeout_seconds)
             else:
-                # 使用带类型的参数调用
-                result = self._call_with_types(dubbo_client, method, params, param_types)
+                # Use typed parameter invocation
+                result = self._call_with_types(dubbo_client, method, params, param_types, timeout_seconds)
             
-            self.logger.debug(f"Dubbo协议调用服务成功: {interface}.{method}")
-            return {"success": True, "result": result, "message": "调用成功"}
+            self.logger.debug(f"Dubbo protocol service invocation successful: {interface}.{method}")
+            return {"success": True, "result": result, "message": "Invocation successful"}
             
         except Exception as e:
-            self.logger.error(f"Dubbo协议调用服务异常: {str(e)}", exc_info=True)
-            return {"success": False, "result": None, "message": f"调用异常: {str(e)}"}
+            self.logger.error(f"Dubbo protocol service invocation exception: {str(e)}", exc_info=True)
+            return {"success": False, "result": None, "message": f"Invocation exception: {str(e)}"}
+    
+    def _extract_clean_type(self, param_type: str) -> str:
+        """
+        Extract clean type name without generic information
+        
+        Args:
+            param_type: Parameter type string
+            
+        Returns:
+            Clean type name
+        """
+        return param_type.split('<')[0].strip()
     
     def _is_object_type(self, param_type: str) -> bool:
         """
-        判断参数类型是否为对象类型
+        Determine if parameter type is object type
         
         Args:
-            param_type: 参数类型字符串
+            param_type: Parameter type string
             
         Returns:
-            是否为对象类型
+            Whether it is object type
         """
-        # 基本类型不是对象类型
-        basic_types = {
-            'java.lang.String', 'java.lang.Integer', 'java.lang.Long', 
-            'java.lang.Float', 'java.lang.Double', 'java.lang.Boolean',
-            'java.lang.Byte', 'java.lang.Short', 'java.lang.Character',
-            'int', 'long', 'float', 'double', 'boolean', 'byte', 'short', 'char'
-        }
+        clean_type = self._extract_clean_type(param_type)
         
-        # 集合类型也不是普通对象类型
-        collection_types = {
-            'java.util.List', 'java.util.ArrayList', 'java.util.LinkedList',
-            'java.util.Map', 'java.util.HashMap', 'java.util.LinkedHashMap',
-            'java.util.Set', 'java.util.HashSet', 'java.util.LinkedHashSet'
-        }
-        
-        # 去除泛型信息进行判断
-        clean_type = param_type.split('<')[0].strip()
-        
-        return (clean_type not in basic_types and 
-                clean_type not in collection_types and
-                not clean_type.startswith('['))  # 数组类型
+        return (clean_type not in self.BASIC_TYPES and 
+                clean_type not in self.COLLECTION_TYPES and
+                not clean_type.startswith('['))  # Array types
     
     def _is_map_type(self, param_type: str) -> bool:
         """
-        判断参数类型是否为Map类型
+        Determine if parameter type is Map type
         
         Args:
-            param_type: 参数类型字符串
+            param_type: Parameter type string
             
         Returns:
-            是否为Map类型
+            Whether it is Map type
         """
-        clean_type = param_type.split('<')[0].strip()
-        map_types = {
-            'java.util.Map', 'java.util.HashMap', 'java.util.LinkedHashMap',
-            'java.util.TreeMap', 'java.util.ConcurrentHashMap'
-        }
-        return clean_type in map_types
+        clean_type = self._extract_clean_type(param_type)
+        return clean_type in self.MAP_TYPES
     
     def _is_list_type(self, param_type: str) -> bool:
         """
-        判断参数类型是否为List类型
+        Determine if parameter type is List type
         
         Args:
-            param_type: 参数类型字符串
+            param_type: Parameter type string
             
         Returns:
-            是否为List类型
+            Whether it is List type
         """
-        clean_type = param_type.split('<')[0].strip()
-        list_types = {
-            'java.util.List', 'java.util.ArrayList', 'java.util.LinkedList',
-            'java.util.Vector', 'java.util.Stack'
-        }
-        return clean_type in list_types
+        clean_type = self._extract_clean_type(param_type)
+        return clean_type in self.LIST_TYPES
     
     def _convert_dict_to_object(self, value: dict, param_type: str) -> Object:
         """
-        将 Python 字典转换为 dubbo Object，递归处理嵌套的字典和列表
+        Convert Python dictionary to dubbo Object, recursively handle nested dictionaries and lists
         
         Args:
-            value: Python 字典
-            param_type: Java 类型名
+            value: Python dictionary
+            param_type: Java type name
             
         Returns:
-            Object 实例
+            Object instance
         """
-        # 清理泛型信息，获取纯净的类名
-        clean_type = param_type.split('<')[0].strip()
+        # Clean generic information, get pure class name
+        clean_type = self._extract_clean_type(param_type)
         
-        # 创建 Object 实例
+        # Create Object instance
         obj = Object(clean_type)
         
-        # 递归处理字典中的所有键值对
+        # Recursively handle all key-value pairs in dictionary
         for key, val in value.items():
             converted_val = self._convert_nested_value(val)
             obj[key] = converted_val
         
-        self.logger.debug(f"转换字典为Object: {clean_type} -> {obj}")
+        self.logger.debug(f"Convert dictionary to Object: {clean_type} -> {obj}")
         return obj
     
     def _convert_nested_value(self, value):
         """
-        递归转换嵌套的值，将Python字典转换为Object，保持其他类型不变
+        Recursively convert nested values, convert Python dictionaries to Object, keep other types unchanged
         
         Args:
-            value: 要转换的值
+            value: Value to convert
             
         Returns:
-            转换后的值
+            Converted value
         """
         if isinstance(value, dict):
-            # 对于嵌套字典，转换为通用的Object类型
+            # For nested dictionaries, convert to generic Object type
             return self._convert_dict_to_object(value, "java.lang.Object")
         elif isinstance(value, list):
-            # 对于列表，递归处理每个元素
+            # For lists, recursively process each element
             return [self._convert_nested_value(item) for item in value]
         else:
-            # 其他类型（基本类型）保持不变
+            # Other types (basic types) remain unchanged
             return value
     
     def _convert_list_to_arraylist(self, value: list, param_type: str) -> list:
         """
-        保持Python列表不变，直接返回
+        Keep Python list unchanged, return directly (deprecated method, kept for compatibility)
         
         Args:
-            value: Python 列表
-            param_type: Java 类型名，如 "java.util.List<java.lang.String>"
+            value: Python list
+            param_type: Java type name, e.g., "java.util.List<java.lang.String>"
             
         Returns:
-            原始Python列表
+            Original Python list
+            
+        Note:
+            This method is deprecated and may be removed in future versions.
+            Use _convert_list_to_java_collection instead.
         """
-        # 确保列表元素是正确的类型
+        # Ensure list elements are of correct type
         if 'java.lang.String' in param_type:
-            # 确保所有元素都是字符串类型
+            # Ensure all elements are string type
             converted_list = [str(item) for item in value]
         else:
             converted_list = value
         
-        self.logger.debug(f"List参数保持原样: {param_type} -> 包含 {len(converted_list)} 个元素: {converted_list}")
+        self.logger.debug(f"List parameter kept as is: {param_type} -> contains {len(converted_list)} elements: {converted_list}")
         return converted_list
     
     def _convert_list_to_java_collection(self, value: list, param_type: str) -> Object:
         """
-        将Python列表转换为Java Collection对象，使用特殊的序列化类型
+        Convert Python list to Java Collection object, correctly handle complex element types
         
         Args:
-            value: Python列表
-            param_type: Java List类型名（如java.util.List、java.util.ArrayList等）
+            value: Python list
+            param_type: Java List type name (e.g., java.util.List, java.util.ArrayList, etc.)
             
         Returns:
-            Object实例，代表Java Collection对象
+            Object instance representing Java Collection object
         """
-        # 清理泛型信息，获取纯净的类名
-        clean_type = param_type.split('<')[0].strip()
+        # Clean generic information, get pure class name
+        clean_type = self._extract_clean_type(param_type)
         
-        # 对于List接口，使用ArrayList作为实现类
+        # For List interface, use ArrayList as implementation class
         if clean_type == "java.util.List":
             clean_type = "java.util.ArrayList"
         
-        # 创建一个标准的Java ArrayList对象
+        # Extract generic type information
+        element_type = None
+        if '<' in param_type and '>' in param_type:
+            start = param_type.find('<') + 1
+            end = param_type.rfind('>')
+            element_type = param_type[start:end].strip()
+        
+        # Convert elements in list
+        converted_elements = []
+        for item in value:
+            if isinstance(item, dict) and element_type:
+                # If it's a dictionary and has explicit element type, convert to Object
+                converted_item = self._convert_dict_to_object(item, element_type)
+                converted_elements.append(converted_item)
+            else:
+                # Other types remain unchanged
+                converted_elements.append(item)
+        
+        # Create a standard Java ArrayList object
         collection_obj = Object(clean_type)
         
-        # 使用标准的ArrayList字段结构
-        # elementData是ArrayList内部存储数组的字段名
-        collection_obj['elementData'] = value
-        collection_obj['size'] = len(value)
+        # Use standard ArrayList field structure
+        # elementData is the field name for ArrayList's internal storage array
+        collection_obj['elementData'] = converted_elements
+        collection_obj['size'] = len(converted_elements)
         
-        self.logger.debug(f"转换Python列表为Java Collection: {param_type} -> {clean_type}对象（{len(value)}个元素）")
+        self.logger.debug(f"Convert Python list to Java Collection: {param_type} -> {clean_type} object ({len(converted_elements)} elements, element type: {element_type})")
         return collection_obj
+    
+    def _convert_single_param(self, param: Any, param_type: str, index: Optional[int] = None) -> Any:
+        """
+        Convert single parameter based on its type
+        
+        Args:
+            param: Parameter value
+            param_type: Parameter type
+            index: Parameter index for logging (optional)
+            
+        Returns:
+            Converted parameter
+        """
+        if isinstance(param, dict):
+            if self._is_object_type(param_type) or self._is_map_type(param_type):
+                # Object type or Map type: convert to Object
+                converted_param = self._convert_dict_to_object(param, param_type)
+                log_prefix = f"Parameter[{index}]" if index is not None else "Single parameter"
+                type_desc = "Map" if self._is_map_type(param_type) else "object"
+                self.logger.debug(f"{log_prefix} {type_desc} conversion: {param_type} -> {type(converted_param)}")
+                return converted_param
+        elif isinstance(param, list):
+            if self._is_list_type(param_type):
+                # List type: convert to Java Collection object
+                converted_param = self._convert_list_to_java_collection(param, param_type)
+                log_prefix = f"Parameter[{index}]" if index is not None else "Single parameter"
+                self.logger.debug(f"{log_prefix} List type: {param_type} -> converted to Java Collection object")
+                return converted_param
+        
+        # Other types remain unchanged
+        return param
     
     def _call_with_types(
         self, 
         client: DubboClient, 
         method: str, 
         params: Any, 
-        param_types: Optional[List[str]]
+        param_types: Optional[List[str]],
+        timeout: float = 60.0
     ) -> Any:
         """
-        根据参数类型调用Dubbo服务
+        Call Dubbo service based on parameter types
         
         Args:
-            client: Dubbo客户端实例
-            method: 方法名
-            params: 参数值（单值或数组）
-            param_types: 参数类型列表（可为None表示传统调用）
+            client: Dubbo client instance
+            method: Method name
+            params: Parameter values (single value or array)
+            param_types: Parameter types list (can be None for traditional invocation)
+            timeout: Timeout in seconds (optional)
             
         Returns:
-            调用结果
+            Invocation result
         """
-        # 处理传统调用（无类型信息）
+        # Handle traditional invocation (no type information)
         if param_types is None:
-            self.logger.debug("使用传统调用方式（无类型信息）")
+            self.logger.debug("Using traditional invocation method (no type information)")
             if params is None:
-                return client.call(method)
+                return client.call(method, timeout=timeout)
             else:
-                return client.call(method, params)
+                return client.call(method, params, timeout=timeout)
         
-        # 处理无参数调用
+        # Handle no-parameter invocation
         if len(param_types) == 0:
-            return client.call(method)
+            return client.call(method, [], param_types, timeout=timeout)
         elif len(param_types) == 1:
-            # 单参数调用
-            converted_params = params
-            
-            # 如果参数是字典
-            if isinstance(params, dict):
-                if self._is_object_type(param_types[0]):
-                    # 对象类型：转换为Object
-                    converted_params = self._convert_dict_to_object(params, param_types[0])
-                    self.logger.debug(f"单参数对象转换: {param_types[0]} -> {type(converted_params)}")
-                elif self._is_map_type(param_types[0]):
-                    # Map类型：也需要转换为Object，因为Hessian编码器不支持原生dict
-                    converted_params = self._convert_dict_to_object(params, param_types[0])
-                    self.logger.debug(f"单参数Map类型: {param_types[0]} -> 转换为Object")
-            
-            # 如果参数是列表 - 对于List类型，转换为Java Collection对象
-            elif isinstance(params, list):
-                if self._is_list_type(param_types[0]):
-                    # List类型：转换为Java Collection对象以解决Hessian序列化问题
-                    converted_params = self._convert_list_to_java_collection(params, param_types[0])
-                    self.logger.debug(f"单参数List类型: {param_types[0]} -> 转换为Java Collection对象")
-                else:
-                    # 非List类型的列表，保持原样
-                    converted_params = params
-            
-            return client.call(method, converted_params, param_types)
+            # Single parameter invocation
+            converted_params = self._convert_single_param(params, param_types[0])
+            return client.call(method, converted_params, param_types, timeout=timeout)
         else:
-            # 多参数调用 - params 必须是列表
+            # Multi-parameter invocation - params must be list
             if not isinstance(params, (list, tuple)):
-                raise ValueError(f"多参数调用时，params必须是列表或元组类型")
+                raise ValueError(f"For multi-parameter invocation, params must be list or tuple type")
             
             if len(params) != len(param_types):
-                raise ValueError(f"参数数量({len(params)})与类型数量({len(param_types)})不匹配")
+                raise ValueError(f"Number of parameters ({len(params)}) does not match number of parameter types ({len(param_types)})")
             
-            # 转换参数列表中的对象类型参数
-            converted_params = []
-            for i, (param, param_type) in enumerate(zip(params, param_types)):
-                if isinstance(param, dict):
-                    if self._is_object_type(param_type):
-                        # 对象类型：转换为Object
-                        converted_param = self._convert_dict_to_object(param, param_type)
-                        self.logger.debug(f"多参数对象转换[{i}]: {param_type} -> {type(converted_param)}")
-                        converted_params.append(converted_param)
-                    elif self._is_map_type(param_type):
-                        # Map类型：也需要转换为Object，因为Hessian编码器不支持原生dict
-                        converted_param = self._convert_dict_to_object(param, param_type)
-                        self.logger.debug(f"多参数Map类型[{i}]: {param_type} -> 转换为Object")
-                        converted_params.append(converted_param)
-                    else:
-                        converted_params.append(param)
-                elif isinstance(param, list):
-                    if self._is_list_type(param_type):
-                        # List类型：转换为Java Collection对象以解决Hessian序列化问题
-                        converted_param = self._convert_list_to_java_collection(param, param_type)
-                        self.logger.debug(f"多参数List类型[{i}]: {param_type} -> 转换为Java Collection对象")
-                        converted_params.append(converted_param)
-                    else:
-                        converted_params.append(param)
-                else:
-                    converted_params.append(param)
+            # Convert object type parameters in parameter list
+            converted_params = [
+                self._convert_single_param(param, param_type, i) 
+                for i, (param, param_type) in enumerate(zip(params, param_types))
+            ]
             
-            return client.call(method, converted_params, param_types)
+            return client.call(method, converted_params, param_types, timeout=timeout)
 
 
 class ProtocolFactory:
-    """协议工厂，根据URI创建对应的协议处理器"""
+    """Protocol factory, creates corresponding protocol handler based on URI"""
     
     @staticmethod
     def create_protocol_handler(service_uri: str) -> ProtocolHandler:
         """
-        创建协议处理器
+        Create protocol handler
         
         Parameters:
-            service_uri: 服务URI，包含协议前缀
+            service_uri: Service URI, including protocol prefix
             
         Returns:
-            协议处理器实例
+            Protocol handler instance
         """
-        # 检查service_uri是否为None
+        # Check if service_uri is None
         if service_uri is None:
-            raise ValueError("服务URI不能为空")
+            raise ValueError("Service URI cannot be empty")
         
-        # 如果没有指定协议，默认使用dubbo
+        # If no protocol is specified, use dubbo by default
         if "://" not in service_uri:
             service_uri = f"dubbo://{service_uri}"
         
@@ -394,13 +448,13 @@ class ProtocolFactory:
         
         if protocol == "dubbo":
             return DubboProtocolHandler()
-        # 将来可以在这里添加其他协议处理器
+        # Can add other protocol handlers here in the future
         # elif protocol == "triple":
         #    return TripleProtocolHandler()
         # elif protocol == "rest":
         #    return RestProtocolHandler()
         else:
-            raise ValueError(f"不支持的协议: {protocol}")
+            raise ValueError(f"Unsupported protocol: {protocol}")
 
 
 class DubboClientUtils:
@@ -408,6 +462,8 @@ class DubboClientUtils:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
+        # 缓存已创建的protocol handler以避免重复创建
+        self._protocol_handler_cache = {}
 
     def invoke_with_registry(
         self, 
@@ -415,7 +471,9 @@ class DubboClientUtils:
         interface: str, 
         method: str, 
         params: Optional[Any] = None,
-        param_types: Optional[List[str]] = None
+        param_types: Optional[List[str]] = None,
+        dubbo_version: str = "2.4.10",
+        timeout: int = 60000
     ) -> Dict[str, Any]:
         """
         Invoke Dubbo service through registry
@@ -426,6 +484,8 @@ class DubboClientUtils:
             method: method name
             params: parameters
             param_types: parameter types (optional)
+            dubbo_version: Dubbo version (optional)
+            timeout: Timeout in milliseconds (optional)
             
         Returns:
             call result
@@ -444,11 +504,11 @@ class DubboClientUtils:
                 
             self.logger.debug(f"Get provider from registry: {provider_uri}")
             
-            # 使用获取到的提供者URI调用服务
-            return self.invoke_service(provider_uri, interface, method, params, param_types)
+            # Use obtained provider URI to invoke service
+            return self.invoke_service(provider_uri, interface, method, params, param_types, dubbo_version, timeout)
         except Exception as e:
             self.logger.error(f"Failed to get provider from registry: {str(e)}", exc_info=True)
-            return {"success": False, "result": None, "message": f"从注册中心获取服务提供者失败: {str(e)}"}
+            return {"success": False, "result": None, "message": f"Failed to get service provider from registry: {str(e)}"}
 
     def invoke_service(
         self, 
@@ -456,43 +516,56 @@ class DubboClientUtils:
         interface: str, 
         method: str, 
         params: Optional[Any] = None,
-        param_types: Optional[List[str]] = None
+        param_types: Optional[List[str]] = None,
+        dubbo_version: str = "2.4.10",
+        timeout: int = 60000
     ) -> Dict[str, Any]:
         """
-        调用服务方法，支持多种协议
+        Invoke service method, supports multiple protocols
         
         Parameters:
-            service_uri: 服务URI，包含协议前缀，如dubbo://host:port
-            interface: 接口名
-            method: 方法名
-            params: 参数
-            param_types: 参数类型列表（可选）
+            service_uri: Service URI, including protocol prefix, e.g., dubbo://host:port
+            interface: Interface name
+            method: Method name
+            params: Parameters
+            param_types: Parameter types list (optional)
+            dubbo_version: Dubbo version (optional)
+            timeout: Timeout in milliseconds (optional)
             
         Returns:
-            调用结果
+            Invocation result
         """
         self.logger.debug(f"Invoke service: {service_uri}, {interface}.{method}, params: {params}, types={param_types}")
         
         try:
-            # 创建协议处理器
-            protocol_handler = ProtocolFactory.create_protocol_handler(service_uri)
+            # Get protocol type for caching
+            if "://" not in service_uri:
+                protocol = "dubbo"
+            else:
+                protocol = service_uri.split("://")[0].lower()
             
-            # 调用服务
-            return protocol_handler.invoke(service_uri, interface, method, params, param_types)
+            # Use cached protocol handler or create new one
+            if protocol not in self._protocol_handler_cache:
+                self._protocol_handler_cache[protocol] = ProtocolFactory.create_protocol_handler(service_uri)
+            
+            protocol_handler = self._protocol_handler_cache[protocol]
+            
+            # Invoke service
+            return protocol_handler.invoke(service_uri, interface, method, params, param_types, dubbo_version, timeout)
         except Exception as e:
             self.logger.error(f"Service invocation exception: {str(e)}", exc_info=True)
-            return {"success": False, "result": None, "message": f"调用服务异常: {str(e)}"}
+            return {"success": False, "result": None, "message": f"Service invocation exception: {str(e)}"}
 
     def _parse_registry_address(self, registry_address: str) -> Tuple[str, str]:
-        """解析注册中心地址，返回(类型, 地址)元组"""
+        """Parse registry address, return (type, address) tuple"""
         match = re.match(r'^([a-z]+)://(.+)$', registry_address)
         if not match:
-            raise ValueError(f"注册中心地址格式错误: {registry_address}")
+            raise ValueError(f"Registry address format error: {registry_address}")
         
         registry_type = match.group(1)
         address = match.group(2)
         
         return registry_type, address
 
-# 单例实例
+# Singleton instance
 dubbo_client_utils = DubboClientUtils() 

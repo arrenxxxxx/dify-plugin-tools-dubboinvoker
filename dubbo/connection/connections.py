@@ -227,7 +227,7 @@ class BaseConnectionPool(object):
             elif flag == 0:  # 异常的响应值
                 self.results[invoke_id] = self._parse_error(res)
             else:
-                raise DubboResponseException("Unknown result flag, expect '0' '1' '2', get " + flag)
+                raise DubboResponseException("Unknown result flag, expect '0' '1' '2', get " + str(flag))
         except Exception as e:
             logger.exception(e)
             self.results[invoke_id] = e

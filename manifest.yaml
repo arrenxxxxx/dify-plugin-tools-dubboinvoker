@@ -17,8 +17,6 @@ plugins:
     - provider/dubbo_invoker.yaml
 tags:
   - utilities
-  - business
-  - other
 meta:
   version: 0.0.1
   arch:

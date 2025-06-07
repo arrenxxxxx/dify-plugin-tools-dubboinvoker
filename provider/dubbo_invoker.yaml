@@ -10,8 +10,33 @@ identity:
   icon: icon.svg
   tags:
     - utilities
-    - business
-    - other
+credentials_for_provider:
+  dubbo_version:
+    type: text-input
+    required: false
+    default: "2.4.10"
+    label:
+      en_US: Dubbo Version
+      zh_Hans: Dubbo版本
+    help:
+      en_US: The version of Dubbo to use for service invocation
+      zh_Hans: 用于服务调用的Dubbo版本
+    placeholder:
+      en_US: e.g., 2.4.10, 2.6.x, 2.7.x
+      zh_Hans: 例如：2.4.10, 2.6.x, 2.7.x
+  timeout:
+    type: text-input
+    required: false
+    default: "60000"
+    label:
+      en_US: Call Timeout (ms)
+      zh_Hans: 调用超时时间(毫秒)
+    help:
+      en_US: Timeout for Dubbo service calls in milliseconds
+      zh_Hans: Dubbo服务调用的超时时间，单位为毫秒
+    placeholder:
+      en_US: e.g., 60000 (60 seconds)
+      zh_Hans: 例如：60000 (60秒)
 tools:
   - tools/dubbo_invoke.yaml
 extra:

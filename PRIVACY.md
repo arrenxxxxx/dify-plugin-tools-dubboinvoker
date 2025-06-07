@@ -1,23 +1,36 @@
-# 隐私政策
+# Privacy Policy
 
-## 数据收集
+## Data Collection
 
-Dubbo调用器插件（"本插件"）是一个工具，用于连接和调用基于Dubbo协议的服务。本插件设计为"使用时配置"，这意味着：
+The Dubbo Invoker plugin ("this plugin") does not collect or store any personal data. All configuration information is:
 
-1. 本插件不会永久存储您的任何配置信息
-2. 每次使用时需要重新提供连接信息
-3. 连接信息和参数仅在单次请求过程中保存在内存中，完成请求后会被清除
+1. **Not permanently stored** - No configuration data is saved by the plugin
+2. **Runtime only** - Connection details are only kept in memory during execution
+3. **Automatically cleared** - All data is removed after each request completes
 
-## 数据传输
+## Data Transmission
 
-当您使用本插件时，您提供的连接信息（如注册中心地址、服务地址、接口名称、方法名称和参数）将被用于：
+When you use this plugin, your provided information is transmitted only to:
 
-1. 连接到指定的注册中心（如ZooKeeper）以发现服务
-2. 直接连接到Dubbo服务提供者
-3. 发送您指定的方法调用和参数
+1. **Your specified registry** (e.g., Nacos, ZooKeeper) for service discovery
+2. **Your target Dubbo service** for method invocation
 
-请注意，这些信息将通过网络传输到您指定的目标服务，但不会被本插件存储或发送到其他任何地方。
+The plugin acts as a bridge - it forwards your requests to your services but does not store, log, or send data elsewhere.
 
-## 数据安全
+## Data Security
 
-本插件不会收集、存储或处理您的任何敏感数据。然而，请注意您通过本插件传递的任何数据都可能被目标Dubbo服务处理和存储。 
+- **No data storage**: We don't save any of your configuration or parameters
+- **No external transmission**: Data only goes to the services you specify
+- **Memory-only processing**: All operations happen in temporary memory
+- **Your responsibility**: Please ensure your target services handle data securely
+
+## What We Don't Do
+
+- ❌ Store your service URLs or credentials
+- ❌ Log your method calls or parameters  
+- ❌ Send data to third-party services
+- ❌ Retain any information after execution
+
+## Contact
+
+If you have questions about this privacy policy, please open an issue on our GitHub repository. 
